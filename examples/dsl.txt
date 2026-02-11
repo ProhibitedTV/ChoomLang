@@ -1,0 +1,7 @@
+jack img[3] style=cyberpunk neon=++ res=1920x1080 seed=42
+scan img[2] model="vision v2" threshold=0.82
+ghost txt length=short tone=noir
+forge vec[5] objective="route planning" budget=3.5
+ping tool service=renderer timeout=1.5
+call tool name="weather.api" city="New Tokyo"
+relay txt channel=ops priority=2

@@ -1,0 +1,7 @@
+{"op":"gen","target":"img","count":3,"params":{"style":"cyberpunk","neon":"++","res":"1920x1080","seed":42}}
+{"op":"classify","target":"img","count":2,"params":{"model":"vision v2","threshold":0.82}}
+{"op":"summarize","target":"txt","count":1,"params":{"length":"short","tone":"noir"}}
+{"op":"plan","target":"vec","count":5,"params":{"objective":"route planning","budget":3.5}}
+{"op":"healthcheck","target":"tool","count":1,"params":{"service":"renderer","timeout":1.5}}
+{"op":"toolcall","target":"tool","count":1,"params":{"name":"weather.api","city":"New Tokyo"}}
+{"op":"forward","target":"txt","count":1,"params":{"channel":"ops","priority":2}}
