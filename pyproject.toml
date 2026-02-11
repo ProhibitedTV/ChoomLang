@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "choomlang"
+version = "0.1.0"
+description = "Deterministic AI-to-AI command language"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "ChoomLang contributors"}]
+
+[project.scripts]
+choom = "choomlang.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
