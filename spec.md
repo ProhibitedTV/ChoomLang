@@ -1,4 +1,4 @@
-# ChoomLang Specification v0.1
+# ChoomLang Specification v0.2
 
 ## Goals
 
@@ -7,6 +7,7 @@ ChoomLang provides a deterministic command language for agent-to-agent exchange:
 1. Compact human-friendly DSL (**street layer**)
 2. Strict canonical JSON (**core layer**)
 3. Reversible translation with stable serialization
+4. Local model relay mode over Ollama (**v0.2**)
 
 ## Canonical JSON form
 
@@ -25,6 +26,7 @@ Rules:
 - `count` is integer >= 1, defaults to 1
 - `params` is object (possibly empty)
 - JSON->DSL sorts parameter keys lexicographically
+- CLI JSON output uses deterministic ordering (`sort_keys=True`)
 
 ## DSL form
 
@@ -46,7 +48,7 @@ Value types:
 - quoted string: `"New Tokyo"` (supports escaped quotes `\"`)
 - bareword: `cyberpunk`, `1920x1080`, `++`
 
-## Alias table (v0.1)
+## Alias table
 
 | Alias | Canonical op |
 |---|---|
@@ -60,6 +62,48 @@ Value types:
 
 Both aliases and canonical operations are accepted in DSL input.
 Canonical JSON always stores canonical operation names.
+
+## CLI commands (v0.2)
+
+- `choom translate [input]`
+  - Autodetects input type when `--reverse` is not set:
+    - if input starts with `{` => JSON->DSL
+    - otherwise => DSL->JSON
+  - Supports stdin when input is omitted or `-`
+  - `--reverse` forces JSON->DSL
+  - `--compact` emits minified JSON for DSL->JSON mode
+- `choom teach <dsl>`: token-by-token explanation
+- `choom validate [dsl]`
+  - Parse-only validation
+  - success => prints `ok`, exit `0`
+  - failure => prints `error: ...` to stderr, exit `2`
+- `choom relay --a-model ... --b-model ...`
+  - Runs A/B model relay via local Ollama HTTP API
+
+## Relay semantics (v0.2)
+
+Relay uses Ollama endpoint `http://localhost:11434/api/chat` with fallback to `/api/generate`.
+
+Required args:
+- `--a-model`
+- `--b-model`
+
+Optional args:
+- `--turns` (default 6)
+- `--seed` (forwarded to Ollama options; ignored if endpoint/model does not use it)
+- `--system-a`, `--system-b`
+- `--start` (initial ChoomLang line; default `ping tool service=relay`)
+- `--strict/--no-strict` (default strict)
+
+Strict mode behavior:
+1. Model output must be valid ChoomLang DSL.
+2. If invalid, CLI sends a corrective instruction to that same model and retries once.
+3. If second attempt is invalid, relay aborts with a clear error.
+
+Safety limits:
+- Relay enforces message size limits.
+- Relay stops after configured turn count.
+- Connection and HTTP failures produce user-facing relay errors.
 
 ## Default targets (extensible)
 

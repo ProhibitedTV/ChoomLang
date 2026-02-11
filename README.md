@@ -1,4 +1,4 @@
-# ChoomLang v0.1
+# ChoomLang v0.2
 
 ChoomLang is a deterministic AI-to-AI command language with two layers:
 
@@ -10,6 +10,8 @@ This repo implements:
 - DSL parser/serializer (`DSL <-> JSON`)
 - Alias normalization (street ops -> canonical ops)
 - Teach mode (`token-by-token` explanation)
+- Validate mode (parse-only lint for DSL lines)
+- Ollama-backed relay mode (`choom relay`)
 - CLI (`choom`)
 - Tests + CI
 
@@ -27,16 +29,72 @@ Translate DSL to canonical JSON:
 choom translate "jack img[2] style=studio res=1024x1024"
 ```
 
-Translate JSON to DSL:
+Translate JSON to DSL (`--reverse`):
 
 ```bash
 choom translate --reverse '{"op":"gen","target":"img","count":2,"params":{"res":"1024x1024","style":"studio"}}'
+```
+
+Translate with autodetect (JSON input auto-converts to DSL):
+
+```bash
+choom translate '{"op":"gen","target":"img","count":2,"params":{"res":"1024x1024","style":"studio"}}'
+```
+
+Compact JSON output:
+
+```bash
+choom translate "gen txt tone=noir" --compact
+```
+
+Validate DSL input (parse-only):
+
+```bash
+choom validate "gen img[2] style=studio"
 ```
 
 Teach mode:
 
 ```bash
 choom teach "jack img[2] style=studio res=1024x1024 seed=42"
+```
+
+Relay mode (two local Ollama models speaking ChoomLang):
+
+```bash
+choom relay --a-model llama3.1 --b-model qwen2.5 --turns 4
+```
+
+Relay with custom system prompts and starter message:
+
+```bash
+choom relay \
+  --a-model llama3.1 \
+  --b-model qwen2.5 \
+  --system-a "You are concise and practical." \
+  --system-b "You are cautious and verify assumptions." \
+  --start "scan txt labels=urgent,normal confidence=true" \
+  --turns 3
+```
+
+## Stdin / piping examples
+
+Read translation input from stdin:
+
+```bash
+echo 'gen txt tone=noir' | choom translate
+```
+
+Read JSON from stdin and auto-detect reverse translation:
+
+```bash
+echo '{"op":"gen","target":"txt","count":1,"params":{"tone":"noir"}}' | choom translate
+```
+
+Validate stdin:
+
+```bash
+echo 'jack img[2] style=studio' | choom validate
 ```
 
 Run tests:
