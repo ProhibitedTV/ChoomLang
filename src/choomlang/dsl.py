@@ -43,8 +43,10 @@ def canonicalize_op(op: str) -> str:
     return ALIAS_TO_CANON.get(op, op)
 
 
-def parse_dsl(line: str) -> ParsedCommand:
+def parse_dsl(line: str, *, lenient: bool = False) -> ParsedCommand:
     tokens = _tokenize(line)
+    if lenient:
+        tokens = _strip_trailing_punctuation_token(tokens)
     if len(tokens) < 2:
         raise DSLParseError("invalid header: expected '<op> <target>[count] ...'")
 
@@ -87,9 +89,15 @@ def serialize_dsl(command: dict[str, Any] | ParsedCommand) -> str:
     return " ".join(parts)
 
 
-def format_dsl(line: str) -> str:
+def format_dsl(line: str, *, lenient: bool = False) -> str:
     """Return canonical single-line DSL formatting for input."""
-    return serialize_dsl(parse_dsl(line))
+    return serialize_dsl(parse_dsl(line, lenient=lenient))
+
+
+def _strip_trailing_punctuation_token(tokens: list[str]) -> list[str]:
+    if tokens and tokens[-1] in {".", ",", ";"}:
+        return tokens[:-1]
+    return tokens
 
 
 def _parse_target_count(token: str) -> tuple[str, int]:

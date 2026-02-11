@@ -1,4 +1,4 @@
-# ChoomLang v0.3
+# ChoomLang v0.4
 
 ChoomLang is a deterministic AI-to-AI command language with two layers:
 
@@ -13,7 +13,7 @@ This repo implements:
 - Validate mode (parse-only lint for DSL lines)
 - Ollama-backed relay mode (`choom relay`)
 - CLI (`choom`)
-- v0.3 protocol discipline commands: `fmt`, `script`, `schema`, `guard`
+- v0.4 structured relay + logging + lenient parsing ergonomics
 - Tests + CI
 
 ## Install
@@ -135,6 +135,20 @@ Print a reusable guard/repair prompt:
 choom guard
 choom guard --error "invalid header" --previous "hello world"
 ```
+
+Structured relay mode (canonical JSON over Ollama format):
+
+```bash
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --schema
+```
+
+Relay transcript logging (JSONL):
+
+```bash
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --log relay.jsonl
+```
+
+Lenient mode note: `validate`, `fmt`, and `relay` support `--lenient` to ignore only a final standalone `.`, `,`, or `;` token.
 
 ## DSL shape
 

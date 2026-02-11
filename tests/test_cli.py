@@ -153,10 +153,25 @@ def test_cli_guard_prompt_default_and_targeted(capsys):
     code = main(["guard"])
     out = capsys.readouterr().out.strip()
     assert code == 0
-    assert "Reply with exactly one valid ChoomLang DSL line and no extra text." in out
+    assert "Grammar: <op> <target>[count] key=value ..." in out
+    assert "Bans: no JSON, no trailing punctuation, no standalone symbols." in out
 
     code = main(["guard", "--error", "invalid header", "--previous", "hello"])
     out = capsys.readouterr().out.strip()
     assert code == 0
     assert "Error: invalid header" in out
     assert "Previous reply:" in out
+
+
+def test_cli_validate_lenient_allows_trailing_dot(capsys):
+    code = main(["validate", "ping txt .", "--lenient"])
+    out = capsys.readouterr().out.strip()
+    assert code == 0
+    assert out == "ok"
+
+
+def test_cli_fmt_lenient_allows_trailing_dot(capsys):
+    code = main(["fmt", "ping txt .", "--lenient"])
+    out = capsys.readouterr().out.strip()
+    assert code == 0
+    assert out == "healthcheck txt"

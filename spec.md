@@ -1,4 +1,4 @@
-# ChoomLang Specification v0.3
+# ChoomLang Specification v0.4
 
 ## Goals
 
@@ -8,7 +8,7 @@ ChoomLang provides a deterministic command language for agent-to-agent exchange:
 2. Strict canonical JSON (**core layer**)
 3. Reversible translation with stable serialization
 4. Local model relay mode over Ollama (**v0.2**)
-5. Protocol discipline and ergonomics commands (**v0.3**)
+5. Structured relay, transcripts, and lenient parsing ergonomics (**v0.4**)
 
 ## Canonical JSON form
 
@@ -64,7 +64,7 @@ Value types:
 Both aliases and canonical operations are accepted in DSL input.
 Canonical JSON always stores canonical operation names.
 
-## CLI commands (v0.2 + v0.3)
+## CLI commands (v0.4)
 
 - `choom translate [input]`
   - Autodetects input type when `--reverse` is not set:
@@ -75,13 +75,20 @@ Canonical JSON always stores canonical operation names.
   - `--compact` emits minified JSON for DSL->JSON mode
 - `choom teach <dsl>`: token-by-token explanation
 - `choom validate [dsl]`
+  - `--lenient` ignores only a trailing standalone `.`, `,`, or `;` token
   - Parse-only validation
   - success => prints `ok`, exit `0`
   - failure => prints `error: ...` to stderr, exit `2`
 - `choom relay --a-model ... --b-model ...`
   - Runs A/B model relay via local Ollama HTTP API
+  - `--structured` uses `/api/chat` with `stream=false` and `format` (`json` or schema object)
+  - `--schema/--no-schema` controls schema-mode when structured relay is enabled
+  - `--raw-json` prints raw model content alongside canonical DSL
+  - `--log <path>` appends per-turn JSONL transcript records
+  - `--lenient` affects DSL mode only
 
 - `choom fmt [dsl]`
+  - `--lenient` uses the same trailing-token relaxation during parse
   - Canonicalizes a single DSL line
   - Supports stdin when input is omitted or `-`
   - Normalizes aliases (`jack` -> `gen`), sorts params lexicographically, omits `[1]`
@@ -102,7 +109,7 @@ Canonical JSON always stores canonical operation names.
   - `--error` and `--previous` add targeted context
   - Always instructs models: `Reply with exactly one valid ChoomLang DSL line and no extra text.`
 
-## Relay semantics (v0.2)
+## Relay semantics (v0.4)
 
 Relay uses Ollama endpoint `http://localhost:11434/api/chat` with fallback to `/api/generate`.
 
@@ -169,3 +176,27 @@ Errors include token or segment context when possible.
 10. `healthcheck tool region=nightcity`
 11. `call tool name="weather.api" city="New Tokyo"`
 12. `relay txt channel=ops priority=2`
+
+
+Structured mode behavior:
+1. Relay sends canonical JSON message context to each model (not DSL text).
+2. Ollama requests use `stream: false` and `format` set to either `"json"` or canonical JSON Schema object.
+3. Model reply must parse as JSON object with required `op` and `target`.
+4. Missing `count` defaults to `1`; missing `params` defaults to `{}`.
+5. Relay converts canonical JSON to canonical DSL for display with stable sorted param keys.
+
+Transcript JSONL record format (`--log`):
+```json
+{
+  "ts": "ISO8601",
+  "side": "A|B",
+  "model": "...",
+  "mode": "dsl|structured",
+  "raw": "raw assistant content",
+  "parsed": {"op":"...","target":"...","count":1,"params":{}},
+  "dsl": "canonical dsl or null",
+  "error": "error string or null",
+  "retry": 0
+}
+```
+In strict DSL mode, invalid first attempts and retry attempts are both logged with `retry` as `0` and `1` respectively.

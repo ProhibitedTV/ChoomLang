@@ -47,7 +47,13 @@ def iter_script_lines(text: str) -> list[tuple[int, str]]:
 
 
 def build_guard_prompt(error: str | None = None, previous: str | None = None) -> str:
-    base = "Reply with exactly one valid ChoomLang DSL line and no extra text."
+    base = (
+        "Reply with exactly one valid ChoomLang DSL line and no extra text. "
+        "Grammar: <op> <target>[count] key=value ... "
+        "Bans: no JSON, no trailing punctuation, no standalone symbols. "
+        "Examples: ping txt; gen txt prompt=\"hello\"; "
+        "classify txt sentiment=polarity; toolcall tool[1] name=search query=\"cats\"."
+    )
     if error is None and previous is None:
         return base
 

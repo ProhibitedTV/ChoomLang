@@ -31,9 +31,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_validate = sub.add_parser("validate", help="Validate a DSL line")
     p_validate.add_argument("input", nargs="?", help="DSL line or '-' / stdin")
+    p_validate.add_argument("--lenient", action="store_true", help="Allow trivial trailing punctuation token")
 
     p_fmt = sub.add_parser("fmt", help="Canonicalize one DSL line")
     p_fmt.add_argument("input", nargs="?", help="DSL line or '-' / stdin")
+    p_fmt.add_argument("--lenient", action="store_true", help="Allow trivial trailing punctuation token")
 
     p_script = sub.add_parser("script", help="Process multi-line ChoomLang scripts")
     p_script.add_argument("path", help="Script path or '-' for stdin")
@@ -62,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help="Require valid ChoomLang from each model with one retry",
     )
+    p_relay.add_argument("--structured", action="store_true", help="Use Ollama structured output mode")
+    p_relay.add_argument("--schema", action=argparse.BooleanOptionalAction, default=True, help="Use canonical JSON schema with --structured")
+    p_relay.add_argument("--raw-json", action="store_true", help="Print raw JSON replies in relay output")
+    p_relay.add_argument("--log", help="Append relay transcript records to JSONL file")
+    p_relay.add_argument("--lenient", action="store_true", help="Allow trivial trailing punctuation token in DSL mode")
 
     return parser
 
@@ -108,12 +115,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "validate":
-            parse_dsl(_read_input(args.input))
+            parse_dsl(_read_input(args.input), lenient=args.lenient)
             print("ok")
             return 0
 
         if args.command == "fmt":
-            print(format_dsl(_read_input(args.input)))
+            print(format_dsl(_read_input(args.input), lenient=args.lenient))
             return 0
 
         if args.command == "script":
@@ -153,10 +160,17 @@ def main(argv: list[str] | None = None) -> int:
                 system_b=args.system_b,
                 start=args.start,
                 strict=args.strict,
+                structured=args.structured,
+                use_schema=args.schema if args.structured else False,
+                raw_json=args.raw_json,
+                log_path=args.log,
+                lenient=args.lenient,
             )
-            for speaker, dsl_line, payload in transcript:
+            for speaker, dsl_line, payload, raw in transcript:
                 print(f"{speaker}: {dsl_line}")
                 print(json.dumps(payload, sort_keys=True))
+                if args.raw_json and raw is not None:
+                    print(f"raw: {raw}")
             return 0
 
         parser.error("unknown command")
