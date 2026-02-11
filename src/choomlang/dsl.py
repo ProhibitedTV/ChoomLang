@@ -87,6 +87,11 @@ def serialize_dsl(command: dict[str, Any] | ParsedCommand) -> str:
     return " ".join(parts)
 
 
+def format_dsl(line: str) -> str:
+    """Return canonical single-line DSL formatting for input."""
+    return serialize_dsl(parse_dsl(line))
+
+
 def _parse_target_count(token: str) -> tuple[str, int]:
     match = HEADER_RE.match(token)
     if not match:
