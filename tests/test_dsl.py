@@ -70,3 +70,19 @@ def test_format_dsl_stable_quoting_and_escape():
 def test_format_dsl_quotes_when_needed():
     formatted = format_dsl('gen txt msg="two words" token=abc')
     assert formatted == 'gen txt msg="two words" token=abc'
+
+
+def test_lenient_trailing_punctuation():
+    with pytest.raises(DSLParseError):
+        parse_dsl("ping txt .")
+
+    parsed = parse_dsl("ping txt .", lenient=True)
+    assert parsed.op == "healthcheck"
+    assert parsed.target == "txt"
+
+
+def test_format_dsl_lenient_trailing_punctuation():
+    with pytest.raises(DSLParseError):
+        format_dsl("gen txt .")
+
+    assert format_dsl("gen txt .", lenient=True) == "gen txt"
