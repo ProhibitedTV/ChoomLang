@@ -77,3 +77,86 @@ def test_cli_teach(capsys):
     out = capsys.readouterr().out
     assert code == 0
     assert "alias -> gen" in out
+
+
+def test_cli_fmt_normalizes_alias_sort_and_quotes(capsys):
+    code = main(["fmt", 'jack txt[1] z=2 a="two words"'])
+    out = capsys.readouterr().out.strip()
+    assert code == 0
+    assert out == 'gen txt a="two words" z=2'
+
+
+def test_cli_fmt_stdin(monkeypatch, capsys):
+    import io
+    import sys
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO('jack txt mood="night city"\n'))
+    code = main(["fmt"])
+    out = capsys.readouterr().out.strip()
+    assert code == 0
+    assert out == 'gen txt mood="night city"'
+
+
+def test_cli_script_jsonl_ignores_comments_and_blanks(capsys, tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        "\n"
+        "# full comment\n"
+        "jack img[1] style=studio  # inline\n"
+        'scan txt label="#not-comment" # trailing comment\n',
+        encoding="utf-8",
+    )
+
+    code = main(["script", str(script)])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert code == 0
+    assert out == [
+        '{"count":1,"op":"gen","params":{"style":"studio"},"target":"img"}',
+        '{"count":1,"op":"classify","params":{"label":"#not-comment"},"target":"txt"}',
+    ]
+
+
+def test_cli_script_dsl_continue_reports_errors(capsys, tmp_path):
+    script = tmp_path / "bad.choom"
+    script.write_text(
+        "jack txt mood=ok\n"
+        "broken\n"
+        "scan txt tag=green\n",
+        encoding="utf-8",
+    )
+
+    code = main(["script", str(script), "--to", "dsl", "--continue"])
+    captured = capsys.readouterr()
+    assert code == 2
+    assert captured.out.strip().splitlines() == ["gen txt mood=ok", "classify txt tag=green"]
+    assert "error: line 2:" in captured.err
+
+
+def test_cli_schema_contains_known_enums(capsys):
+    code = main(["schema"])
+    out = capsys.readouterr().out
+    assert code == 0
+    payload = json.loads(out)
+    assert payload["$defs"]["knownOp"]["enum"] == [
+        "gen",
+        "classify",
+        "summarize",
+        "plan",
+        "healthcheck",
+        "toolcall",
+        "forward",
+    ]
+    assert payload["$defs"]["knownTarget"]["enum"] == ["img", "txt", "aud", "vid", "vec", "tool"]
+
+
+def test_cli_guard_prompt_default_and_targeted(capsys):
+    code = main(["guard"])
+    out = capsys.readouterr().out.strip()
+    assert code == 0
+    assert "Reply with exactly one valid ChoomLang DSL line and no extra text." in out
+
+    code = main(["guard", "--error", "invalid header", "--previous", "hello"])
+    out = capsys.readouterr().out.strip()
+    assert code == 0
+    assert "Error: invalid header" in out
+    assert "Previous reply:" in out

@@ -44,3 +44,15 @@ Notes:
 - `count` defaults to `1` when omitted.
 - Parser is deterministic and unambiguous for supported value forms.
 - Output serialization uses stable key ordering for `params`.
+
+
+## Script file behavior (v0.3)
+
+`choom script` processes one DSL command per physical line after comment filtering:
+
+- Ignore blank lines.
+- Ignore full-line comments whose first non-space character is `#`.
+- Inline comments start at unquoted `#` and continue to end of line.
+- `#` inside quoted values is treated as data.
+
+These rules apply to script ingestion only; core DSL grammar remains one-line command syntax shown above.

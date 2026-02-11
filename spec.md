@@ -1,4 +1,4 @@
-# ChoomLang Specification v0.2
+# ChoomLang Specification v0.3
 
 ## Goals
 
@@ -8,6 +8,7 @@ ChoomLang provides a deterministic command language for agent-to-agent exchange:
 2. Strict canonical JSON (**core layer**)
 3. Reversible translation with stable serialization
 4. Local model relay mode over Ollama (**v0.2**)
+5. Protocol discipline and ergonomics commands (**v0.3**)
 
 ## Canonical JSON form
 
@@ -63,7 +64,7 @@ Value types:
 Both aliases and canonical operations are accepted in DSL input.
 Canonical JSON always stores canonical operation names.
 
-## CLI commands (v0.2)
+## CLI commands (v0.2 + v0.3)
 
 - `choom translate [input]`
   - Autodetects input type when `--reverse` is not set:
@@ -79,6 +80,27 @@ Canonical JSON always stores canonical operation names.
   - failure => prints `error: ...` to stderr, exit `2`
 - `choom relay --a-model ... --b-model ...`
   - Runs A/B model relay via local Ollama HTTP API
+
+- `choom fmt [dsl]`
+  - Canonicalizes a single DSL line
+  - Supports stdin when input is omitted or `-`
+  - Normalizes aliases (`jack` -> `gen`), sorts params lexicographically, omits `[1]`
+  - Uses deterministic quoting and escapes internal `"`
+- `choom script <path|->`
+  - Processes multi-line ChoomLang scripts from file or stdin (`-`)
+  - Ignores blank lines and `#` full-line comments
+  - Supports inline comments: unquoted `#` starts a comment, quoted `#` is data
+  - `--to jsonl` (default): emits one canonical JSON object per valid input line
+  - `--to dsl`: emits one canonical DSL line per valid input line (same rules as `fmt`)
+  - `--fail-fast` (default): stop on first parse error, exit `2`
+  - `--continue`: keep processing, print per-line errors to stderr, exit `2` if any errors
+- `choom schema`
+  - Emits JSON Schema for canonical JSON payloads (not for DSL text grammar)
+  - Includes known op/target enums and still allows custom strings for extensibility
+- `choom guard`
+  - Emits a reusable repair prompt
+  - `--error` and `--previous` add targeted context
+  - Always instructs models: `Reply with exactly one valid ChoomLang DSL line and no extra text.`
 
 ## Relay semantics (v0.2)
 

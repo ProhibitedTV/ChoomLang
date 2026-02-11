@@ -1,6 +1,6 @@
 import pytest
 
-from choomlang.dsl import DSLParseError, parse_dsl, serialize_dsl
+from choomlang.dsl import DSLParseError, format_dsl, parse_dsl, serialize_dsl
 
 
 def test_roundtrip_dsl_json_dsl():
@@ -55,3 +55,18 @@ def test_malformed_kv_error():
 def test_unterminated_quote_error():
     with pytest.raises(DSLParseError, match="unterminated quote"):
         parse_dsl('gen txt msg="oops')
+
+
+def test_format_dsl_normalizes_alias_order_and_count_omission():
+    formatted = format_dsl('jack img[1] z=9 a=1')
+    assert formatted == 'gen img a=1 z=9'
+
+
+def test_format_dsl_stable_quoting_and_escape():
+    formatted = format_dsl(r'gen txt note="he said \"yo\"" tag=safe')
+    assert formatted == r'gen txt note="he said \"yo\"" tag=safe'
+
+
+def test_format_dsl_quotes_when_needed():
+    formatted = format_dsl('gen txt msg="two words" token=abc')
+    assert formatted == 'gen txt msg="two words" token=abc'

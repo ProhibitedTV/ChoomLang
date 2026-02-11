@@ -6,7 +6,8 @@ import argparse
 import json
 import sys
 
-from .dsl import DSLParseError, parse_dsl
+from .dsl import DSLParseError, format_dsl, parse_dsl
+from .protocol import build_guard_prompt, canonical_json_schema, script_to_dsl, script_to_jsonl
 from .relay import OllamaClient, RelayError, run_relay
 from .teach import explain_dsl
 from .translate import dsl_to_json, json_text_to_dsl
@@ -30,6 +31,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_validate = sub.add_parser("validate", help="Validate a DSL line")
     p_validate.add_argument("input", nargs="?", help="DSL line or '-' / stdin")
+
+    p_fmt = sub.add_parser("fmt", help="Canonicalize one DSL line")
+    p_fmt.add_argument("input", nargs="?", help="DSL line or '-' / stdin")
+
+    p_script = sub.add_parser("script", help="Process multi-line ChoomLang scripts")
+    p_script.add_argument("path", help="Script path or '-' for stdin")
+    p_script.add_argument("--to", choices=["jsonl", "dsl"], default="jsonl", help="Output format")
+    mode = p_script.add_mutually_exclusive_group()
+    mode.add_argument("--fail-fast", dest="fail_fast", action="store_true", default=True)
+    mode.add_argument("--continue", dest="fail_fast", action="store_false")
+
+    sub.add_parser("schema", help="Emit JSON Schema for canonical payload JSON")
+
+    p_guard = sub.add_parser("guard", help="Print a reusable model repair prompt")
+    p_guard.add_argument("--error", help="Optional parse/validation error text")
+    p_guard.add_argument("--previous", help="Optional previous model output")
 
     p_relay = sub.add_parser("relay", help="Run a local Ollama-backed relay")
     p_relay.add_argument("--a-model", required=True, help="Model name for speaker A")
@@ -56,6 +73,13 @@ def _read_input(value: str | None) -> str:
     if not text.strip():
         raise ValueError("input required via argument or stdin")
     return text.strip()
+
+
+def _read_script(path: str) -> str:
+    if path == "-":
+        return sys.stdin.read()
+    with open(path, "r", encoding="utf-8") as fh:
+        return fh.read()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -88,6 +112,36 @@ def main(argv: list[str] | None = None) -> int:
             print("ok")
             return 0
 
+        if args.command == "fmt":
+            print(format_dsl(_read_input(args.input)))
+            return 0
+
+        if args.command == "script":
+            script_text = _read_script(args.path)
+            if args.to == "dsl":
+                outputs, errors = script_to_dsl(script_text, fail_fast=args.fail_fast)
+            else:
+                outputs, errors = script_to_jsonl(script_text, fail_fast=args.fail_fast)
+
+            for line in outputs:
+                print(line)
+            for err in errors:
+                print(f"error: {err}", file=sys.stderr)
+
+            if errors and not args.fail_fast:
+                return 2
+            if errors and args.fail_fast:
+                return 2
+            return 0
+
+        if args.command == "schema":
+            print(json.dumps(canonical_json_schema(), indent=2, sort_keys=True))
+            return 0
+
+        if args.command == "guard":
+            print(build_guard_prompt(error=args.error, previous=args.previous))
+            return 0
+
         if args.command == "relay":
             transcript = run_relay(
                 client=OllamaClient(),
@@ -106,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         parser.error("unknown command")
-    except (DSLParseError, ValueError, json.JSONDecodeError, RelayError) as exc:
+    except (DSLParseError, ValueError, json.JSONDecodeError, RelayError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
 
