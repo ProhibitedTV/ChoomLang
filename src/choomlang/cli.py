@@ -52,7 +52,8 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--fail-fast", dest="fail_fast", action="store_true", default=True)
     mode.add_argument("--continue", dest="fail_fast", action="store_false")
 
-    sub.add_parser("schema", help="Emit JSON Schema for canonical payload JSON")
+    p_schema = sub.add_parser("schema", help="Emit JSON Schema for canonical payload JSON")
+    p_schema.add_argument("--mode", choices=["strict", "permissive"], default="strict", help="Schema strictness mode")
 
     p_guard = sub.add_parser("guard", help="Print a reusable model repair prompt")
     p_guard.add_argument("--error", help="Optional parse/validation error text")
@@ -77,6 +78,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_relay.add_argument("--structured", action="store_true", help="Use Ollama structured output mode")
     p_relay.add_argument("--schema", action=argparse.BooleanOptionalAction, default=True, help="Use canonical JSON schema with --structured")
+    p_relay.add_argument("--allow-unknown-op", action="store_true", help="Allow unknown op values in structured relay validation")
+    p_relay.add_argument("--allow-unknown-target", action="store_true", help="Allow unknown target values in structured relay validation")
     p_relay.add_argument("--raw-json", action="store_true", help="Print raw JSON replies in relay output")
     p_relay.add_argument("--log", help="Append relay transcript records to JSONL file")
     p_relay.add_argument("--lenient", action="store_true", help="Allow trivial trailing punctuation token in DSL mode")
@@ -205,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "schema":
-            print(json.dumps(canonical_json_schema(), indent=2, sort_keys=True))
+            print(json.dumps(canonical_json_schema(mode=args.mode), indent=2, sort_keys=True))
             return 0
 
         if args.command == "guard":
@@ -275,6 +278,8 @@ def main(argv: list[str] | None = None) -> int:
                 strict=args.strict,
                 structured=args.structured,
                 use_schema=args.schema if args.structured else False,
+                allow_unknown_op=args.allow_unknown_op,
+                allow_unknown_target=args.allow_unknown_target,
                 fallback_enabled=not args.no_fallback,
                 raw_json=args.raw_json,
                 log_path=args.log,

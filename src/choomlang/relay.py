@@ -12,11 +12,12 @@ from urllib import error, request
 
 from .dsl import DSLParseError
 from .protocol import build_contract_prompt, build_guard_prompt, canonical_json_schema
+from .registry import CANONICAL_OPS, CANONICAL_TARGETS, normalize_op, validate_payload
 from .translate import json_to_dsl
 
 OLLAMA_URL = "http://localhost:11434"
 MAX_MESSAGE_CHARS = 4000
-PING_PAYLOAD = {"op": "ping", "target": "txt", "count": 1, "params": {}}
+PING_PAYLOAD = {"op": "healthcheck", "target": "txt", "count": 1, "params": {}}
 RequestMode = Literal["dsl", "structured-schema", "structured-json", "fallback-dsl"]
 
 
@@ -388,7 +389,12 @@ def dsl_to_json_with_options(message: str, *, lenient: bool) -> dict[str, Any]:
     return parse_dsl(message, lenient=lenient).to_json_dict()
 
 
-def parse_structured_reply(raw: str) -> tuple[dict[str, Any], str]:
+def parse_structured_reply(
+    raw: str,
+    *,
+    strict_ops: bool = True,
+    strict_targets: bool = True,
+) -> tuple[dict[str, Any], str]:
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -396,25 +402,52 @@ def parse_structured_reply(raw: str) -> tuple[dict[str, Any], str]:
     if not isinstance(payload, dict):
         raise RelayError("structured relay response must be a JSON object")
 
-    if "op" not in payload or "target" not in payload:
-        raise RelayError("structured relay response missing required keys: op and target")
-
     normalized = {
-        "op": str(payload["op"]),
-        "target": str(payload["target"]),
+        "op": payload.get("op"),
+        "target": payload.get("target"),
         "count": payload.get("count", 1),
         "params": payload.get("params", {}),
     }
 
     try:
-        normalized["count"] = int(normalized["count"])
-    except (TypeError, ValueError) as exc:
-        raise RelayError("structured relay response count must be an integer") from exc
-    if normalized["count"] < 1:
-        raise RelayError("structured relay response count must be >= 1")
+        validate_payload(
+            normalized,
+            strict_ops=strict_ops,
+            strict_targets=strict_targets,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        suggestion = "use --allow-unknown-op/--allow-unknown-target or try --no-schema"
+        if "field op" in message:
+            bad = normalized.get("op")
+            if isinstance(bad, str):
+                candidate = normalize_op(bad)
+                if candidate in CANONICAL_OPS and candidate != bad:
+                    suggestion = f"alias detected: try canonical op '{candidate}' or use --allow-unknown-op"
+                else:
+                    suggestion = f"use canonical ops {sorted(CANONICAL_OPS)} or --allow-unknown-op; try --no-schema"
+        elif "field target" in message:
+            suggestion = f"use canonical targets {sorted(CANONICAL_TARGETS)} or --allow-unknown-target; try --no-schema"
+        invalid_fields: list[str] = []
+        if "field op" in message:
+            invalid_fields.append("op")
+        if "field target" in message:
+            invalid_fields.append("target")
+        if "field count" in message:
+            invalid_fields.append("count")
+        if "field params" in message:
+            invalid_fields.append("params")
+        raise RelayError(
+            f"structured relay validation failed: {message}; suggested fix: {suggestion}",
+            raw_response=raw,
+            reason=",".join(invalid_fields) if invalid_fields else None,
+            stage="structured-validation",
+        ) from exc
 
-    if not isinstance(normalized["params"], dict):
-        raise RelayError("structured relay response params must be an object")
+    normalized["op"] = normalize_op(str(normalized["op"]))
+    normalized["target"] = str(normalized["target"])
+    normalized["count"] = int(normalized["count"])
+    normalized["params"] = dict(normalized["params"])
 
     dsl = json_to_dsl(normalized)
     return normalized, dsl
@@ -456,6 +489,8 @@ def build_transcript_record(
     stage: RequestMode,
     http_status: int | None,
     fallback_reason: str | None,
+    invalid_fields: list[str] | None = None,
+    raw_json_text: str | None = None,
 ) -> dict[str, Any]:
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -475,6 +510,8 @@ def build_transcript_record(
         "timeout_s": timeout_s,
         "keep_alive_s": keep_alive_s,
         "fallback_reason": fallback_reason,
+        "invalid_fields": invalid_fields,
+        "raw_json_text": raw_json_text,
     }
 
 
@@ -544,6 +581,8 @@ def run_relay(
     strict: bool = True,
     structured: bool = False,
     use_schema: bool = True,
+    allow_unknown_op: bool = False,
+    allow_unknown_target: bool = False,
     fallback_enabled: bool = True,
     use_contract_in_structured: bool = True,
     raw_json: bool = False,
@@ -594,6 +633,8 @@ def run_relay(
                     seed=seed,
                     use_schema=use_schema,
                     strict=strict,
+                    allow_unknown_op=allow_unknown_op,
+                    allow_unknown_target=allow_unknown_target,
                     fallback_enabled=fallback_enabled,
                     lenient=lenient,
                     add_contract=use_contract_in_structured,
@@ -636,6 +677,8 @@ def run_relay(
                 timeout_s=client.timeout,
                 keep_alive_s=client.keep_alive,
                 fallback_reason=fallback_reason,
+                invalid_fields=None,
+                raw_json_text=response_raw if structured else None,
             )
             records.append(record)
             append_transcript(log_path, record)
@@ -656,6 +699,8 @@ def _structured_model_step(
     seed: int | None,
     use_schema: bool,
     strict: bool,
+    allow_unknown_op: bool,
+    allow_unknown_target: bool,
     fallback_enabled: bool,
     lenient: bool,
     add_contract: bool,
@@ -671,11 +716,16 @@ def _structured_model_step(
     working_history = [*history, {"role": "user", "content": prompt}]
 
     if use_schema:
+        schema_mode = "strict" if strict else "permissive"
         try:
             raw_schema, elapsed_schema, status_schema = _chat_once(
-                client, model, working_history, seed=seed, response_format=canonical_json_schema()
+                client, model, working_history, seed=seed, response_format=canonical_json_schema(mode=schema_mode)
             )
-            payload, dsl = parse_structured_reply(raw_schema)
+            payload, dsl = parse_structured_reply(
+                raw_schema,
+                strict_ops=not allow_unknown_op,
+                strict_targets=not allow_unknown_target,
+            )
             return raw_schema, dsl, payload, elapsed_schema, "structured-schema", status_schema, 0, None
         except RelayError as schema_err:
             reason = f"schema-failed:{schema_err}"
@@ -700,7 +750,11 @@ def _structured_model_step(
                 raw_json, elapsed_json, status_json = _chat_once(
                     client, model, working_history, seed=seed, response_format="json"
                 )
-                payload, dsl = parse_structured_reply(raw_json)
+                payload, dsl = parse_structured_reply(
+                    raw_json,
+                    strict_ops=not allow_unknown_op,
+                    strict_targets=not allow_unknown_target,
+                )
                 return (
                     raw_json,
                     dsl,
@@ -744,8 +798,12 @@ def _structured_model_step(
                     f"{reason};json-failed:{json_err}",
                 )
 
-    raw, elapsed, status = _chat_once(client, model, working_history, seed=seed, response_format="json")
-    payload, dsl = parse_structured_reply(raw)
+    raw, elapsed, status = _chat_once(client, model, working_history, seed=seed, response_format=canonical_json_schema(mode="permissive"))
+    payload, dsl = parse_structured_reply(
+        raw,
+        strict_ops=not allow_unknown_op,
+        strict_targets=not allow_unknown_target,
+    )
     return raw, dsl, payload, elapsed, "structured-json", status, 0, None
 
 

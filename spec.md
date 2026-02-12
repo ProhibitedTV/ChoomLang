@@ -107,7 +107,8 @@ Canonical JSON always stores canonical operation names.
   - `--continue`: keep processing, print per-line errors to stderr, exit `2` if any errors
 - `choom schema`
   - Emits JSON Schema for canonical JSON payloads (not for DSL text grammar)
-  - Includes known op/target enums and still allows custom strings for extensibility
+  - `--mode strict|permissive` (default strict)
+  - strict mode enforces enum-only op/target; permissive mode keeps enums preferred with string fallback
 - `choom guard`
   - Emits a reusable repair prompt
   - `--error` and `--previous` add targeted context
@@ -129,16 +130,18 @@ Optional args:
 - `--strict/--no-strict` (default strict)
 - `--timeout` (default `180`)
 - `--keep-alive` (default `300`)
-- `--structured`, `--schema/--no-schema`, `--no-fallback`
+- `--structured`, `--schema/--no-schema`, `--allow-unknown-op`, `--allow-unknown-target`, `--no-fallback`
 
 Protocol contracts:
 - DSL mode defaults both system prompts to a deterministic one-line DSL contract when `--system-a/--system-b` are not provided.
 - Structured mode can include a minimal contract: `Return JSON only. Match the requested schema exactly.`
 
 Structured fallback state machine:
-1. If `--structured --schema`, first request uses `format=<canonical schema>` (`request_mode=structured-schema`).
-2. On schema-stage timeout/HTTP error/invalid JSON response, relay warns and retries once with `format="json"` (`request_mode=structured-json`) unless `--no-fallback`.
-3. If JSON stage fails:
+1. If `--structured --schema --strict`, first request uses strict `format=<canonical schema>` (`request_mode=structured-schema`).
+2. If `--structured --schema --no-strict`, schema request uses permissive schema mode.
+3. On schema-stage timeout/HTTP error/invalid JSON response, relay warns and retries once with `format="json"` (`request_mode=structured-json`) unless `--no-fallback`.
+4. Structured payload validation enforces canonical `op`/`target` by default; override with `--allow-unknown-op` and/or `--allow-unknown-target`.
+5. If JSON stage fails:
    - strict mode: fail with clear stage diagnostics including last raw response
    - non-strict mode: fallback to guarded DSL generation (`request_mode=fallback-dsl`) and continue best-effort.
 

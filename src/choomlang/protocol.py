@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .dsl import DSLParseError, format_dsl, parse_dsl
+from .registry import CANONICAL_OPS, CANONICAL_TARGETS
 
 KNOWN_OPS = ["gen", "classify", "summarize", "plan", "healthcheck", "toolcall", "forward"]
 KNOWN_TARGETS = ["img", "txt", "aud", "vid", "vec", "tool"]
@@ -82,7 +83,21 @@ def build_contract_prompt(mode: str = "dsl") -> str:
     raise ValueError("mode must be 'dsl' or 'structured'")
 
 
-def canonical_json_schema() -> dict[str, object]:
+def canonical_json_schema(*, mode: str = "strict") -> dict[str, object]:
+    if mode not in {"strict", "permissive"}:
+        raise ValueError("mode must be 'strict' or 'permissive'")
+
+    if mode == "strict":
+        op_schema = {"$ref": "#/$defs/knownOp"}
+        target_schema = {"$ref": "#/$defs/knownTarget"}
+        op_desc = "Canonical operation name."
+        target_desc = "Canonical target domain."
+    else:
+        op_schema = {"anyOf": [{"$ref": "#/$defs/knownOp"}, {"type": "string"}]}
+        target_schema = {"anyOf": [{"$ref": "#/$defs/knownTarget"}, {"type": "string"}]}
+        op_desc = "Canonical operation name. Known ops are enumerated but extensions are allowed."
+        target_desc = "Target domain. Known targets are enumerated but extensions are allowed."
+
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "ChoomLang canonical payload",
@@ -90,14 +105,8 @@ def canonical_json_schema() -> dict[str, object]:
         "required": ["op", "target", "count", "params"],
         "additionalProperties": False,
         "properties": {
-            "op": {
-                "anyOf": [{"$ref": "#/$defs/knownOp"}, {"type": "string"}],
-                "description": "Canonical operation name. Known ops are enumerated but extensions are allowed.",
-            },
-            "target": {
-                "anyOf": [{"$ref": "#/$defs/knownTarget"}, {"type": "string"}],
-                "description": "Target domain. Known targets are enumerated but extensions are allowed.",
-            },
+            "op": {**op_schema, "description": op_desc},
+            "target": {**target_schema, "description": target_desc},
             "count": {"type": "integer", "minimum": 1, "default": 1},
             "params": {
                 "type": "object",

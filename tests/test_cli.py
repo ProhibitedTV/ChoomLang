@@ -132,7 +132,7 @@ def test_cli_script_dsl_continue_reports_errors(capsys, tmp_path):
     assert "error: line 2:" in captured.err
 
 
-def test_cli_schema_contains_known_enums(capsys):
+def test_cli_schema_strict_contains_enum_only(capsys):
     code = main(["schema"])
     out = capsys.readouterr().out
     assert code == 0
@@ -147,6 +147,18 @@ def test_cli_schema_contains_known_enums(capsys):
         "forward",
     ]
     assert payload["$defs"]["knownTarget"]["enum"] == ["img", "txt", "aud", "vid", "vec", "tool"]
+    assert payload["properties"]["op"] == {"$ref": "#/$defs/knownOp", "description": "Canonical operation name."}
+    assert payload["properties"]["target"] == {"$ref": "#/$defs/knownTarget", "description": "Canonical target domain."}
+
+
+def test_cli_schema_permissive_allows_additional_strings(capsys):
+    code = main(["schema", "--mode", "permissive"])
+    out = capsys.readouterr().out
+    assert code == 0
+    payload = json.loads(out)
+    assert "anyOf" in payload["properties"]["op"]
+    assert payload["properties"]["op"]["anyOf"][1] == {"type": "string"}
+    assert "anyOf" in payload["properties"]["target"]
 
 
 def test_cli_guard_prompt_default_and_targeted(capsys):

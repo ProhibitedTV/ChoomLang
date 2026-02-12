@@ -6,15 +6,9 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-ALIAS_TO_CANON = {
-    "jack": "gen",
-    "scan": "classify",
-    "ghost": "summarize",
-    "forge": "plan",
-    "ping": "healthcheck",
-    "call": "toolcall",
-    "relay": "forward",
-}
+from .registry import OP_ALIASES, normalize_op
+
+ALIAS_TO_CANON = dict(OP_ALIASES)
 
 HEADER_RE = re.compile(r"^(?P<target>[A-Za-z_][A-Za-z0-9_-]*)(?:\[(?P<count>[^\]]+)\])?$")
 
@@ -40,7 +34,7 @@ class ParsedCommand:
 
 
 def canonicalize_op(op: str) -> str:
-    return ALIAS_TO_CANON.get(op, op)
+    return normalize_op(op)
 
 
 def parse_dsl(line: str, *, lenient: bool = False) -> ParsedCommand:

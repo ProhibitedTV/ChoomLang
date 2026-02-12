@@ -50,6 +50,15 @@ def test_parse_structured_reply_defaults_and_dsl():
     assert dsl == "gen txt"
 
 
+
+
+def test_parse_structured_reply_strict_rejects_unknown_op_target():
+    with pytest.raises(RelayError, match="field op='success'"):
+        parse_structured_reply('{"op":"success","target":"txt"}')
+
+    with pytest.raises(RelayError, match="field target='ping'"):
+        parse_structured_reply('{"op":"gen","target":"ping"}')
+
 def test_parse_structured_reply_rejects_invalid_json():
     with pytest.raises(RelayError, match="valid JSON"):
         parse_structured_reply("nope")
@@ -104,7 +113,7 @@ def test_build_ping_messages_contains_canonical_ping_json():
     messages = build_ping_messages()
     assert len(messages) == 1
     assert messages[0]["role"] == "user"
-    assert '"op": "ping"' in messages[0]["content"]
+    assert '"op": "healthcheck"' in messages[0]["content"]
 
 
 def test_build_transcript_record_shape_and_json_serializable():
@@ -144,6 +153,8 @@ def test_build_transcript_record_shape_and_json_serializable():
         "timeout_s",
         "keep_alive_s",
         "fallback_reason",
+        "invalid_fields",
+        "raw_json_text",
     }
     assert record["request_mode"] == "structured-schema"
     assert record["stage"] == "structured-schema"
