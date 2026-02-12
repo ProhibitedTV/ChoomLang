@@ -51,6 +51,29 @@ def test_run_script_interpolates_from_state_and_persists(tmp_path):
     assert "@a" not in state["b"]
 
 
+def test_run_script_end_to_end_write_read_and_interpolate_id(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        "toolcall tool name=write_file path=notes/hello.txt text=hello id=written_path\n"
+        "toolcall tool name=read_file path=@written_path id=file_text\n"
+        "toolcall tool name=echo msg=@file_text\n",
+        encoding="utf-8",
+    )
+
+    workdir = tmp_path / "run"
+    outputs = run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+    assert outputs == [
+        "line 1: notes/hello.txt",
+        "line 2: hello",
+        'line 3: {"msg": "hello"}',
+    ]
+    assert (workdir / "artifacts" / "notes" / "hello.txt").read_text(encoding="utf-8") == "hello"
+    state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
+    assert state["written_path"] == "notes/hello.txt"
+    assert state["file_text"] == "hello"
+
+
 def test_run_script_missing_interpolation_errors_or_skips_in_dry_run(tmp_path):
     script = tmp_path / "demo.choom"
     script.write_text("toolcall tool name=echo msg=@missing\n", encoding="utf-8")
@@ -81,6 +104,73 @@ def test_run_script_resume_uses_transcript_completed_steps(tmp_path):
 
     assert len(outputs) == 1
     assert '"id": "three"' in outputs[0]
+
+
+def test_run_script_resume_seeded_state_and_transcript_continues_next_step_only(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        "toolcall tool name=echo msg=first id=first\n"
+        "toolcall tool name=echo msg=@first id=second\n"
+        "toolcall tool name=echo msg=@second id=third\n",
+        encoding="utf-8",
+    )
+
+    workdir = tmp_path / "run"
+    workdir.mkdir()
+    (workdir / "state.json").write_text('{"first":"first"}', encoding="utf-8")
+    (workdir / "transcript.jsonl").write_text(
+        "\n".join(
+            [
+                '{"status":"success","step":1}',
+                '{"status":"success","step":2}',
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    outputs = run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=True, resume=True))
+
+    assert outputs == ['line 3: skipped (missing interpolation key(s): second)']
+    transcript_lines = (workdir / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(transcript_lines) == 3
+    appended = json.loads(transcript_lines[-1])
+    assert appended["step"] == 3
+
+
+def test_run_script_blocks_path_traversal_with_explicit_safety_error(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        "toolcall tool name=write_file path=../x text=unsafe\n",
+        encoding="utf-8",
+    )
+
+    workdir = tmp_path / "run"
+    with pytest.raises(RunError, match=r"runtime error: unsafe artifact path \(path traversal is not allowed\): ../x"):
+        run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+
+def test_run_script_dry_run_validates_and_skips_missing_interpolation_without_writing_files(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        "toolcall tool name=write_file path=notes/file.txt text=hello\n"
+        "toolcall tool name=read_file path=@missing\n",
+        encoding="utf-8",
+    )
+
+    workdir = tmp_path / "run"
+    outputs = run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=True))
+
+    assert outputs == [
+        "line 1: notes/file.txt",
+        "line 2: skipped (missing interpolation key(s): missing)",
+    ]
+    transcript_lines = (workdir / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(transcript_lines) == 2
+    skipped = json.loads(transcript_lines[1])
+    assert skipped["status"] == "skipped"
+    assert skipped["error"] == "missing interpolation key(s): missing"
+    assert not list((workdir / "artifacts").rglob("*"))
 
 
 def test_run_script_enforces_toolcall_contract(tmp_path):
