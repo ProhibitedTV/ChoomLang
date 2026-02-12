@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added a v1.0 stability contract document at `docs/STABILITY.md` covering stable DSL/canonical formatting, canonical JSON output shape, runner artifact layout, and adapter artifact-path return semantics.
+- Added `docs/VERSIONING.md` defining project SemVer policy and MAJOR/MINOR/PATCH expectations.
+- Updated README with a new "Stability & Versioning" section linking to the stability and versioning docs.
+
 ## 0.10.2
 
 - Added an `a1111_txt2img` runner adapter for Stable Diffusion WebUI (A1111) image generation.

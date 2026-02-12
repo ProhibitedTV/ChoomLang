@@ -5,6 +5,13 @@ Deterministic command protocol for agent-to-agent exchanges, with a compact DSL,
 
 **v0.10 highlights:** workflow runner (`choom run`), workdir/state/transcript/resume, safe adapters, Ollama runner adapter coverage, and deterministic runtime semantics.
 
+## Stability & Versioning
+
+ChoomLang defines a v1.0 stability contract for public behavior and compatibility guarantees:
+
+- Stability contract: [`docs/STABILITY.md`](docs/STABILITY.md)
+- Versioning policy (SemVer): [`docs/VERSIONING.md`](docs/VERSIONING.md)
+
 ## What Problem ChoomLang Solves
 
 LLM output drift is common: the same prompt often produces different wrappers, key ordering, or extra text. That makes automation fragile.
