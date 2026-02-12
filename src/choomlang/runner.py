@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import re
+import hashlib
 import time
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -66,6 +68,15 @@ class RunnerState:
             encoding="utf-8",
         )
         tmp_path.replace(path)
+
+    def set_last_successful_step(self, *, step: int | None, line_number: int | None, script: str) -> None:
+        meta = self.data.get("_runner")
+        if not isinstance(meta, dict):
+            meta = {}
+        meta["script"] = script
+        meta["last_successful_step"] = step
+        meta["last_successful_line"] = line_number
+        self.data["_runner"] = meta
 
 
 @dataclass
@@ -130,7 +141,7 @@ def run_script(
     if cfg.max_steps is not None and cfg.max_steps < 1:
         raise RunError("--max-steps must be >= 1")
 
-    run_dir = Path(cfg.workdir) if cfg.workdir else Path.cwd()
+    run_dir = Path(cfg.workdir) if cfg.workdir else _default_run_dir(path)
     artifacts_dir = run_dir / "artifacts"
     state_path = run_dir / "state.json"
     transcript_path = run_dir / "transcript.jsonl"
@@ -138,11 +149,17 @@ def run_script(
     artifacts_dir.mkdir(parents=True, exist_ok=True)
 
     state = RunnerState.load(state_path)
-    if not state_path.exists():
-        state.save_atomic(state_path)
+    state.set_last_successful_step(step=None, line_number=None, script=str(path.resolve()))
+    state.save_atomic(state_path)
 
     script_rows = iter_script_lines(path.read_text(encoding="utf-8"))
+    total_steps = len(script_rows)
     start_idx = _determine_start_index(cfg.resume, transcript_path)
+    if isinstance(cfg.resume, int) and not isinstance(cfg.resume, bool) and start_idx >= total_steps:
+        raise RunError(f"--resume out of range: requested step {start_idx + 1} but script has {total_steps} step(s)")
+    if cfg.resume:
+        resume_step = min(start_idx + 1, total_steps + 1)
+        print(f"resume: step {resume_step} of {total_steps}", file=sys.stderr)
     selected = script_rows[start_idx:]
     if cfg.max_steps is not None:
         selected = selected[: cfg.max_steps]
@@ -182,6 +199,11 @@ def run_script(
                     a1111_url=cfg.a1111_url,
                 )
                 stored_id = _store_output_if_requested(state, payload, output)
+                state.set_last_successful_step(
+                    step=step_index,
+                    line_number=line_number,
+                    script=str(path.resolve()),
+                )
                 state.save_atomic(state_path)
 
                 step_result = StepResult(
@@ -208,7 +230,16 @@ def run_script(
                     error=f"parse error: {exc}",
                 )
                 _append_transcript(transcript_file, step_result)
-                raise RunError(f"line {line_number}: parse error: {exc}") from exc
+                state.save_atomic(state_path)
+                raise RunError(
+                    _format_script_error(
+                        script_path=path,
+                        line_number=line_number,
+                        dsl_line=dsl_line,
+                        reason=f"parse error: {exc}",
+                        hint="Fix the DSL syntax for this line and re-run.",
+                    )
+                ) from exc
             except RunError as exc:
                 step_result = StepResult(
                     step=step_index,
@@ -221,7 +252,16 @@ def run_script(
                     error=str(exc),
                 )
                 _append_transcript(transcript_file, step_result)
-                raise RunError(f"line {line_number}: runtime error: {exc}") from exc
+                state.save_atomic(state_path)
+                raise RunError(
+                    _format_script_error(
+                        script_path=path,
+                        line_number=line_number,
+                        dsl_line=dsl_line,
+                        reason=str(exc),
+                        hint="Check adapter name/params or fix missing references, then retry.",
+                    )
+                ) from exc
 
     return results
 
@@ -232,6 +272,21 @@ def _determine_start_index(resume: int | bool | None, transcript_path: Path) -> 
     if not resume:
         return 0
     return _count_completed_steps(transcript_path)
+
+
+def _default_run_dir(script_path: Path) -> Path:
+    resolved = str(script_path.resolve())
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:12]
+    return Path.cwd() / "runs" / f"{script_path.stem}-{digest}"
+
+
+def _format_script_error(
+    *, script_path: Path, line_number: int, dsl_line: str, reason: str, hint: str
+) -> str:
+    return (
+        f"{script_path.name}:{line_number}: {reason} | "
+        f"dsl='{dsl_line}' | hint: {hint}"
+    )
 
 
 def _count_completed_steps(transcript_path: Path) -> int:

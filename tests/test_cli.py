@@ -357,7 +357,7 @@ def test_cli_run_reports_actionable_errors(capsys, tmp_path):
     code = main(["run", str(bad_parse)])
     err = capsys.readouterr().err
     assert code == 2
-    assert "line 1: parse error:" in err
+    assert "bad_parse.choom:1: parse error:" in err
 
     bad_runtime = tmp_path / "bad_runtime.choom"
     bad_runtime.write_text("toolcall tool name=unknown\n", encoding="utf-8")
@@ -365,7 +365,19 @@ def test_cli_run_reports_actionable_errors(capsys, tmp_path):
     code = main(["run", str(bad_runtime)])
     err = capsys.readouterr().err
     assert code == 2
-    assert "line 1: runtime error:" in err
+    assert "bad_runtime.choom:1:" in err
+    assert "dsl='toolcall tool name=unknown'" in err
+
+
+def test_cli_run_resume_out_of_range_is_clear_and_nonzero(capsys, tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text("toolcall tool name=echo\n", encoding="utf-8")
+
+    code = main(["run", str(script), "--resume", "2"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "--resume out of range" in err
+    assert "script has 1 step(s)" in err
 
 
 def test_cli_validate_script_command(capsys, tmp_path):

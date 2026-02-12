@@ -146,8 +146,44 @@ def test_run_script_blocks_path_traversal_with_explicit_safety_error(tmp_path):
     )
 
     workdir = tmp_path / "run"
-    with pytest.raises(RunError, match=r"runtime error: unsafe artifact path \(path traversal is not allowed\): ../x"):
+    with pytest.raises(RunError, match=r"unsafe artifact path \(path traversal is not allowed\): ../x"):
         run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+
+def test_run_script_toolcall_failure_reports_filename_line_and_dsl_and_writes_partial_state(tmp_path):
+    script = tmp_path / "broken.choom"
+    script.write_text(
+        "toolcall tool name=echo id=ok\n"
+        "toolcall tool name=unknown\n",
+        encoding="utf-8",
+    )
+
+    workdir = tmp_path / "run"
+    with pytest.raises(RunError, match=r"broken\.choom:2: .*dsl='toolcall tool name=unknown'.*hint:"):
+        run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+    state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
+    assert state["ok"] == '{"id": "ok"}'
+    assert state["_runner"]["last_successful_step"] == 1
+    assert state["_runner"]["last_successful_line"] == 1
+
+    records = [json.loads(line) for line in (workdir / "transcript.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(records) == 2
+    assert records[-1]["status"] == "error"
+
+
+def test_run_script_default_run_directory_is_deterministic(tmp_path, monkeypatch):
+    script = tmp_path / "demo.choom"
+    script.write_text("toolcall tool name=echo\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    run_script(str(script), config=RunnerConfig(dry_run=True))
+    run_script(str(script), config=RunnerConfig(dry_run=True))
+
+    run_dirs = [p for p in (tmp_path / "runs").iterdir() if p.is_dir()]
+    assert len(run_dirs) == 1
+    assert (run_dirs[0] / "state.json").exists()
+    assert (run_dirs[0] / "transcript.jsonl").exists()
 
 
 def test_run_script_dry_run_validates_and_skips_missing_interpolation_without_writing_files(tmp_path):
