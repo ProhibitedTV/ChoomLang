@@ -1,0 +1,5 @@
+# Representative invalid DSL lines.
+broken
+gen txt mood
+gen
+ping txt .
