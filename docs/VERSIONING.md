@@ -14,7 +14,7 @@ Increment MAJOR for backward-incompatible changes to stable public surfaces, inc
 
 - DSL grammar or canonical formatting behavior changes that break existing deterministic round-trips.
 - Canonical JSON shape or normalized semantics changes that break existing consumers.
-- Runner artifact layout contract changes (`runs/*/artifacts`, `transcript.jsonl`, `state.json`).
+- Runner artifact layout contract changes (`<workdir>/artifacts`, `<workdir>/transcript.jsonl`, `<workdir>/state.json`).
 - Adapter output contract changes (file outputs no longer stored under artifacts and/or no longer returned as relative artifact paths).
 
 ## MINOR

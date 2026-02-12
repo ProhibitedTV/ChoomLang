@@ -38,15 +38,15 @@ Compatibility expectation:
 
 ## 3) Runner artifact layout
 
-Stable guarantees for `choom run` workdir layout:
+Stable guarantees for `choom run` selected workdir layout:
 
-- Run artifacts are written under `runs/*/artifacts`.
-- Transcript records are written to `runs/*/transcript.jsonl`.
-- Runner state is written to `runs/*/state.json`.
+- Run artifacts are written under `<workdir>/artifacts` (or `./artifacts` when `--workdir` is not set).
+- Transcript records are written to `<workdir>/transcript.jsonl` (or `./transcript.jsonl` when `--workdir` is not set).
+- Runner state is written to `<workdir>/state.json` (or `./state.json` when `--workdir` is not set).
 
 Compatibility expectation:
 
-- Automation that reads these files by location and role (artifacts vs transcript vs state) remains compatible across v1.x.
+- Automation that reads these files by location and role (artifacts vs transcript vs state) relative to the selected workdir remains compatible across v1.x.
 
 ## 4) Adapter contract for toolcall outputs
 

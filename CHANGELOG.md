@@ -5,6 +5,7 @@
 - Added a v1.0 stability contract document at `docs/STABILITY.md` covering stable DSL/canonical formatting, canonical JSON output shape, runner artifact layout, and adapter artifact-path return semantics.
 - Added `docs/VERSIONING.md` defining project SemVer policy and MAJOR/MINOR/PATCH expectations.
 - Updated README with a new "Stability & Versioning" section linking to the stability and versioning docs.
+- Corrected stability/versioning docs to match implemented runner paths under the selected workdir (`<workdir>/artifacts`, `<workdir>/transcript.jsonl`, `<workdir>/state.json`) instead of `runs/*/...`.
 
 ## 0.10.2
 
