@@ -1,0 +1,5 @@
+# Representative valid DSL lines.
+jack img[2] style=studio res=1024x1024
+gen txt mood="night city" tone=noir
+ping txt
+scan txt[3] label=animal confidence=0.9

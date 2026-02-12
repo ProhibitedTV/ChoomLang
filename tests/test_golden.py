@@ -9,9 +9,10 @@ import pytest
 from choomlang import cli
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
-CASES_PATH = GOLDEN_DIR / "dsl_cases.txt"
-FMT_PATH = GOLDEN_DIR / "expected_fmt.txt"
-SCHEMA_PATH = GOLDEN_DIR / "schema.json"
+VALID_DSL_PATH = GOLDEN_DIR / "dsl_valid.txt"
+INVALID_DSL_PATH = GOLDEN_DIR / "dsl_invalid.txt"
+FMT_EXPECTED_PATH = GOLDEN_DIR / "fmt_expected.txt"
+SCHEMA_EXPECTED_PATH = GOLDEN_DIR / "schema_expected.json"
 
 
 def _run_cli(args: list[str]) -> tuple[int, str, str]:
@@ -22,17 +23,14 @@ def _run_cli(args: list[str]) -> tuple[int, str, str]:
     return code, out.getvalue(), err.getvalue()
 
 
-def _load_cases() -> list[tuple[str, str]]:
-    cases: list[tuple[str, str]] = []
-    for raw_line in CASES_PATH.read_text(encoding="utf-8").splitlines():
+def _load_lines(path: Path) -> list[str]:
+    lines: list[str] = []
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
-        status, dsl = [part.strip() for part in line.split("|", 1)]
-        if status not in {"VALID", "INVALID"}:
-            raise ValueError(f"invalid status in {CASES_PATH}: {status!r}")
-        cases.append((status, dsl))
-    return cases
+        lines.append(line)
+    return lines
 
 
 def _normalize_json_text(text: str) -> str:
@@ -43,49 +41,50 @@ def _regen_enabled() -> bool:
     return os.environ.get("REGEN_GOLDENS") == "1"
 
 
-def test_golden_validate_accepts_valid_cases_only():
-    valid_cases = [dsl for status, dsl in _load_cases() if status == "VALID"]
-    assert valid_cases, "expected at least one VALID case"
+def test_golden_validate_and_fmt_for_valid_cases():
+    valid_cases = _load_lines(VALID_DSL_PATH)
+    assert valid_cases, "expected at least one valid DSL case"
 
+    fmt_outputs = []
     for dsl in valid_cases:
-        code, out, err = _run_cli(["validate", dsl])
-        assert code == 0, f"expected VALID case to pass: {dsl}\nerr={err}"
-        assert out.strip() == "ok"
+        validate_code, validate_out, validate_err = _run_cli(["validate", dsl])
+        assert validate_code == 0, (
+            f"expected VALID case to pass: {dsl}\nerr={validate_err}"
+        )
+        assert validate_out.strip() == "ok"
+
+        fmt_code, fmt_out, fmt_err = _run_cli(["fmt", dsl])
+        assert fmt_code == 0, f"fmt failed for {dsl}: {fmt_err}"
+        fmt_outputs.append(fmt_out.rstrip("\n"))
+
+    actual_fmt = "\n".join(fmt_outputs) + "\n"
+
+    if _regen_enabled():
+        FMT_EXPECTED_PATH.write_text(actual_fmt, encoding="utf-8", newline="\n")
+
+    expected_fmt = FMT_EXPECTED_PATH.read_text(encoding="utf-8")
+    assert actual_fmt == expected_fmt
 
 
-@pytest.mark.parametrize(
-    "dsl",
-    [dsl for status, dsl in _load_cases() if status == "INVALID"],
-)
+@pytest.mark.parametrize("dsl", _load_lines(INVALID_DSL_PATH))
 def test_golden_validate_rejects_invalid_cases(dsl: str):
     code, _out, _err = _run_cli(["validate", dsl])
     assert code == 2
 
 
-def test_golden_fmt_matches_expected_file():
-    valid_cases = [dsl for status, dsl in _load_cases() if status == "VALID"]
-    fmt_outputs = []
-    for dsl in valid_cases:
-        code, out, err = _run_cli(["fmt", dsl])
-        assert code == 0, f"fmt failed for {dsl}: {err}"
-        fmt_outputs.append(out.rstrip("\n"))
-
-    actual = "\n".join(fmt_outputs) + "\n"
-
-    if _regen_enabled():
-        FMT_PATH.write_text(actual, encoding="utf-8")
-
-    expected = FMT_PATH.read_text(encoding="utf-8")
-    assert actual == expected
-
-
 def test_golden_schema_matches_expected_file():
     code, out, err = _run_cli(["schema"])
     assert code == 0, err
-    actual = _normalize_json_text(out)
+    actual_schema = _normalize_json_text(out)
 
     if _regen_enabled():
-        SCHEMA_PATH.write_text(actual, encoding="utf-8")
+        SCHEMA_EXPECTED_PATH.write_text(
+            actual_schema,
+            encoding="utf-8",
+            newline="\n",
+        )
 
-    expected = _normalize_json_text(SCHEMA_PATH.read_text(encoding="utf-8"))
-    assert actual == expected
+    expected_schema = _normalize_json_text(
+        SCHEMA_EXPECTED_PATH.read_text(encoding="utf-8")
+    )
+    assert actual_schema == expected_schema
