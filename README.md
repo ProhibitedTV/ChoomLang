@@ -2,7 +2,7 @@
 
 Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
-**v0.7 highlights:** canonical op/target registry, strict structured validation, strict/permissive schema modes, and clearer unknown op/target diagnostics.
+**v0.8 highlights:** profile defaults, optional lint warnings, safe local `choom run`, and release-process polish.
 
 ## What Problem ChoomLang Solves
 
@@ -45,6 +45,74 @@ choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 2
 ```
 
 If `--probe` fails, verify Ollama is running and both model names are available.
+
+
+## Updated Quick Start
+
+```bash
+pip install -e .
+choom profile list
+choom profile apply sdxl_cyberpunk_bg "gen img prompt="night skyline""
+choom lint "jack txt tone=noir"
+choom run "toolcall tool name=echo trace=demo" --dry-run
+```
+
+```powershell
+pip install -e .
+choom profile list
+choom profile apply sdxl_cyberpunk_bg "gen img prompt="night skyline""
+choom lint "jack txt tone=noir"
+choom run "toolcall tool name=echo trace=demo" --dry-run
+```
+
+## Profiles
+
+Profiles are JSON defaults in the repository `profiles/` directory.
+
+- `choom profile list`
+- `choom profile show <name>`
+- `choom profile apply <name> "<dsl>"`
+
+Apply rules:
+
+- only `params` keys are affected
+- `op`, `target`, and `count` are never changed
+- existing DSL params win over profile defaults
+- final DSL output is canonical with sorted params
+
+## Run toolcall (safe adapters)
+
+`choom run` executes only canonical `toolcall tool` commands.
+
+Built-ins in v0.8:
+
+- `name=echo`: prints params
+- `name=write_file`: writes `text` to `path` under `./out` (or `--out-dir`)
+
+Examples:
+
+```bash
+choom run "toolcall tool name=echo id=123 role=worker"
+choom run "toolcall tool name=write_file path=notes/todo.txt text=hello"
+choom run "toolcall tool name=write_file path=notes/todo.txt text=hello" --dry-run
+```
+
+Path traversal is blocked for `write_file`. Network/shell adapters are intentionally not included in v0.8.
+
+## Lint (warnings-only)
+
+`choom lint` is non-blocking by design and does not reject unknown params.
+
+- warns on non-canonical DSL (suggests `choom fmt`)
+- warns on suspicious standalone punctuation tokens (unless `--lenient`)
+- warns on unknown op/target only with `--strict-ops` / `--strict-targets`
+- warns on non-conventional param keys
+
+Exit codes:
+
+- `0`: clean
+- `1`: warnings
+- `2`: parse/runtime errors
 
 ## DSL Overview
 
@@ -182,3 +250,7 @@ choom script examples/dsl.txt --to jsonl
 - Run tests: `pytest`
 - Keep changes deterministic and focused
 - For CLI behavior updates, keep docs and examples in sync
+
+## Release Steps
+
+See [RELEASE.md](RELEASE.md) for test/build/tag/release guidance.

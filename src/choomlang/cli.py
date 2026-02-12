@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 from .dsl import DSLParseError, format_dsl, parse_dsl
 from .protocol import (
@@ -17,8 +18,10 @@ from .protocol import (
     script_to_jsonl,
 )
 from .relay import OllamaClient, RelayError, run_probe, run_relay
+from .run import RunError, run_toolcall
 from .teach import explain_dsl
 from .translate import dsl_to_json, json_text_to_dsl
+from .profiles import ProfileError, apply_profile_to_dsl, list_profiles, read_profile
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -44,6 +47,26 @@ def build_parser() -> argparse.ArgumentParser:
     p_fmt = sub.add_parser("fmt", help="Canonicalize one DSL line")
     p_fmt.add_argument("input", nargs="?", help="DSL line or '-' / stdin")
     p_fmt.add_argument("--lenient", action="store_true", help="Allow trivial trailing punctuation token")
+
+    p_lint = sub.add_parser("lint", help="Warn on non-canonical or suspicious DSL patterns")
+    p_lint.add_argument("input", nargs="?", help="DSL line or '-' / stdin")
+    p_lint.add_argument("--lenient", action="store_true", help="Allow standalone trailing punctuation tokens")
+    p_lint.add_argument("--strict-ops", action="store_true", help="Warn for unknown ops")
+    p_lint.add_argument("--strict-targets", action="store_true", help="Warn for unknown targets")
+
+    p_profile = sub.add_parser("profile", help="Manage and apply parameter profiles")
+    profile_sub = p_profile.add_subparsers(dest="profile_command", required=True)
+    profile_sub.add_parser("list", help="List available profiles")
+    p_profile_show = profile_sub.add_parser("show", help="Show one profile JSON")
+    p_profile_show.add_argument("name", help="Profile name")
+    p_profile_apply = profile_sub.add_parser("apply", help="Apply profile defaults to a DSL line")
+    p_profile_apply.add_argument("name", help="Profile name")
+    p_profile_apply.add_argument("dsl", help="DSL line")
+
+    p_run = sub.add_parser("run", help="Execute safe local toolcall adapters")
+    p_run.add_argument("input", help="DSL line or path to a .choom file")
+    p_run.add_argument("--dry-run", action="store_true", help="Print what would execute")
+    p_run.add_argument("--out-dir", default="out", help="Safe output directory for file-writing adapters")
 
     p_script = sub.add_parser("script", help="Process multi-line ChoomLang scripts")
     p_script.add_argument("path", help="Script path or '-' for stdin")
@@ -107,11 +130,11 @@ def _detect_shell() -> str:
 
 def _completion_script(shell: str) -> str:
     if shell == "bash":
-        return """# bash completion for choom\n_choom_complete() {\n  local cur prev words cword\n  _init_completion || return\n  local cmds=\"translate teach validate fmt script schema guard completion relay demo\"\n  if [[ $cword -eq 1 ]]; then\n    COMPREPLY=( $(compgen -W \"$cmds\" -- \"$cur\") )\n    return\n  fi\n}\ncomplete -F _choom_complete choom\n"""
+        return """# bash completion for choom\n_choom_complete() {\n  local cur prev words cword\n  _init_completion || return\n  local cmds=\"translate teach validate fmt lint profile run script schema guard completion relay demo\"\n  if [[ $cword -eq 1 ]]; then\n    COMPREPLY=( $(compgen -W \"$cmds\" -- \"$cur\") )\n    return\n  fi\n}\ncomplete -F _choom_complete choom\n"""
     if shell == "zsh":
-        return """#compdef choom\n_arguments '1:command:(translate teach validate fmt script schema guard completion relay demo)'\n"""
+        return """#compdef choom\n_arguments '1:command:(translate teach validate fmt lint profile run script schema guard completion relay demo)'\n"""
     if shell == "powershell":
-        return """Register-ArgumentCompleter -CommandName choom -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  'translate','teach','validate','fmt','script','schema','guard','completion','relay','demo' |\n    Where-Object { $_ -like \"$wordToComplete*\" } |\n    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n"""
+        return """Register-ArgumentCompleter -CommandName choom -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  'translate','teach','validate','fmt','lint','profile','run','script','schema','guard','completion','relay','demo' |\n    Where-Object { $_ -like \"$wordToComplete*\" } |\n    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n"""
     raise ValueError("shell must be one of: bash, zsh, powershell")
 
 
@@ -129,6 +152,42 @@ def _read_script(path: str) -> str:
         return sys.stdin.read()
     with open(path, "r", encoding="utf-8") as fh:
         return fh.read()
+
+
+def _read_run_input(value: str) -> str:
+    maybe_path = Path(value)
+    if maybe_path.exists() and maybe_path.is_file():
+        return maybe_path.read_text(encoding="utf-8").strip()
+    return value
+
+
+def _lint_dsl(text: str, *, lenient: bool, strict_ops: bool, strict_targets: bool) -> tuple[list[str], list[str]]:
+    warnings: list[str] = []
+    errors: list[str] = []
+    raw_tokens = text.strip().split()
+    if not lenient:
+        for token in raw_tokens[2:]:
+            if token in {".", ",", ";", ":", "!", "?"}:
+                warnings.append(f"suspicious standalone punctuation token: {token!r}")
+    try:
+        parsed = parse_dsl(text, lenient=lenient)
+    except DSLParseError as exc:
+        errors.append(str(exc))
+        return warnings, errors
+
+    canonical = format_dsl(text, lenient=lenient)
+    if canonical != text.strip():
+        warnings.append("non-canonical DSL formatting; run `choom fmt`")
+
+    if strict_ops and parsed.op not in KNOWN_OPS:
+        warnings.append(f"unknown op '{parsed.op}' in strict registry mode")
+    if strict_targets and parsed.target not in KNOWN_TARGETS:
+        warnings.append(f"unknown target '{parsed.target}' in strict registry mode")
+
+    for key in parsed.params:
+        if not key.replace("_", "a").replace("-", "a").replace(".", "a").isalnum() or " " in key:
+            warnings.append(f"param key '{key}' is non-conventional; use [A-Za-z0-9_.-] without spaces")
+    return warnings, errors
 
 
 def _print_validation_suggestions(text: str, err: DSLParseError, *, lenient: bool) -> None:
@@ -187,6 +246,39 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "fmt":
             print(format_dsl(_read_input(args.input), lenient=args.lenient))
+            return 0
+
+        if args.command == "lint":
+            lint_text = _read_input(args.input)
+            warnings, errors = _lint_dsl(
+                lint_text,
+                lenient=args.lenient,
+                strict_ops=args.strict_ops,
+                strict_targets=args.strict_targets,
+            )
+            for warning in warnings:
+                print(f"warn: {warning}", file=sys.stderr)
+            for error in errors:
+                print(f"error: {error}", file=sys.stderr)
+            if errors:
+                return 2
+            return 1 if warnings else 0
+
+        if args.command == "profile":
+            if args.profile_command == "list":
+                for name in list_profiles():
+                    print(name)
+                return 0
+            if args.profile_command == "show":
+                print(json.dumps(read_profile(args.name), indent=2, sort_keys=True))
+                return 0
+            if args.profile_command == "apply":
+                print(apply_profile_to_dsl(args.name, args.dsl))
+                return 0
+
+        if args.command == "run":
+            result = run_toolcall(_read_run_input(args.input), out_dir=args.out_dir, dry_run=args.dry_run)
+            print(result)
             return 0
 
         if args.command == "script":
@@ -300,6 +392,9 @@ def main(argv: list[str] | None = None) -> int:
             _print_validation_suggestions(validate_text or "", exc, lenient=args.lenient)
         return 2
     except (ValueError, json.JSONDecodeError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except (ProfileError, RunError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     except RelayError as exc:

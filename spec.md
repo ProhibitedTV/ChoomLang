@@ -231,3 +231,21 @@ Transcript JSONL record format (`--log`):
 }
 ```
 In strict DSL mode, invalid first attempts and retry attempts are both logged with `retry` as `0` and `1` respectively.
+
+
+## Parameter conventions
+
+Parameter keys are intentionally flexible and non-enforced. The following are recommended conventions for cross-tool interoperability:
+
+- identity/tracing: `id`, `trace`
+- execution context: `role`, `priority`, `policy`
+- routing/runtime: `backend`, `tool`
+- generation controls: `seed`, `res`, `format`, `temperature`
+
+Guidance:
+
+- Prefer lowercase keys and stable naming across workflows.
+- Avoid spaces in param keys.
+- Keep values deterministic where possible so canonical DSL and JSON are stable.
+
+`choom lint` may emit warnings for suspicious key patterns, but these are advisory and do not alter parser behavior.
