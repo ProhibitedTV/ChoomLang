@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from choomlang.adapters import run_adapter
+from choomlang.adapters import resolve_artifact_path, run_adapter
 from choomlang.errors import RunError
 
 
@@ -22,8 +22,24 @@ class _FakeResponse:
         return False
 
 
+def _tiny_png_bytes_1() -> bytes:
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a3X8AAAAASUVORK5CYII=",
+        validate=True,
+    )
+
+
+def _tiny_png_bytes_2() -> bytes:
+    return base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z8BQDwAFgwJ/lXvVsQAAAABJRU5ErkJggg==",
+        validate=True,
+    )
+
+
 def test_a1111_txt2img_maps_params_and_writes_deterministic_files(tmp_path, monkeypatch):
     calls: list[dict[str, object]] = []
+    png_1 = _tiny_png_bytes_1()
+    png_2 = _tiny_png_bytes_2()
 
     def fake_urlopen(req, timeout=None):
         calls.append(
@@ -37,8 +53,8 @@ def test_a1111_txt2img_maps_params_and_writes_deterministic_files(tmp_path, monk
         return _FakeResponse(
             {
                 "images": [
-                    base64.b64encode(b"img1").decode("ascii"),
-                    base64.b64encode(b"img2").decode("ascii"),
+                    base64.b64encode(png_1).decode("ascii"),
+                    base64.b64encode(png_2).decode("ascii"),
                 ]
             }
         )
@@ -70,8 +86,8 @@ def test_a1111_txt2img_maps_params_and_writes_deterministic_files(tmp_path, monk
         "a1111_txt2img_0004_01_seed123.png",
         "a1111_txt2img_0004_02_seed123.png",
     ]
-    assert (artifacts_dir / "a1111_txt2img_0004_01_seed123.png").read_bytes() == b"img1"
-    assert (artifacts_dir / "a1111_txt2img_0004_02_seed123.png").read_bytes() == b"img2"
+    assert (artifacts_dir / "a1111_txt2img_0004_01_seed123.png").read_bytes() == png_1
+    assert (artifacts_dir / "a1111_txt2img_0004_02_seed123.png").read_bytes() == png_2
 
     assert calls == [
         {
@@ -163,3 +179,14 @@ def test_a1111_txt2img_dry_run_returns_empty_list_without_request(tmp_path, monk
 
     out = run_adapter("a1111_txt2img", {"prompt": "cat"}, tmp_path / "artifacts", True)
     assert out == "[]"
+
+
+def test_resolve_artifact_path_rejects_traversal_and_absolute_paths(tmp_path):
+    artifacts_dir = tmp_path / "artifacts"
+    artifacts_dir.mkdir()
+
+    with pytest.raises(RunError, match="path traversal"):
+        resolve_artifact_path(artifacts_dir, "../escape.png")
+
+    with pytest.raises(RunError, match="absolute paths are not allowed"):
+        resolve_artifact_path(artifacts_dir, "/tmp/escape.png")
