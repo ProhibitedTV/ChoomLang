@@ -157,6 +157,8 @@ Copy/paste structured demo:
 choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
 ```
 
+For a minimal end-to-end walkthrough (including transcript field meanings and a JSONL sample), see [`DEMO.md`](DEMO.md).
+
 
 Lenient mode note: `validate`, `fmt`, and `relay` support `--lenient` to ignore only a final standalone `.`, `,`, or `;` token.
 
