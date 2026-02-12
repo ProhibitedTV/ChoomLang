@@ -289,6 +289,67 @@ def test_cli_run_resume_and_max_steps(capsys, tmp_path):
     assert '"id": 2' in out[0]
 
 
+
+
+def test_cli_run_a1111_url_precedence_cli_over_env(monkeypatch, tmp_path):
+    script = tmp_path / "run.choom"
+    script.write_text("toolcall tool name=echo\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_run_script(script_path, **kwargs):
+        captured["script_path"] = script_path
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setenv("CHOOM_A1111_URL", "http://env:7860")
+    monkeypatch.setattr("choomlang.cli.run_script", fake_run_script)
+
+    code = main(["run", str(script), "--a1111-url", "http://cli:7860"])
+
+    assert code == 0
+    assert captured["script_path"] == str(script)
+    assert captured["a1111_url"] == "http://cli:7860"
+
+
+def test_cli_run_a1111_url_precedence_env_over_default(monkeypatch, tmp_path):
+    script = tmp_path / "run.choom"
+    script.write_text("toolcall tool name=echo\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_run_script(script_path, **kwargs):
+        captured["script_path"] = script_path
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setenv("CHOOM_A1111_URL", "http://env:7860")
+    monkeypatch.setattr("choomlang.cli.run_script", fake_run_script)
+
+    code = main(["run", str(script)])
+
+    assert code == 0
+    assert captured["a1111_url"] == "http://env:7860"
+
+
+def test_cli_run_a1111_url_default_when_env_absent(monkeypatch, tmp_path):
+    script = tmp_path / "run.choom"
+    script.write_text("toolcall tool name=echo\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_run_script(script_path, **kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.delenv("CHOOM_A1111_URL", raising=False)
+    monkeypatch.setattr("choomlang.cli.run_script", fake_run_script)
+
+    code = main(["run", str(script)])
+
+    assert code == 0
+    assert captured["a1111_url"] == "http://127.0.0.1:7860"
+
 def test_cli_run_reports_actionable_errors(capsys, tmp_path):
     bad_parse = tmp_path / "bad_parse.choom"
     bad_parse.write_text("broken\n", encoding="utf-8")
