@@ -1,4 +1,5 @@
 # ChoomLang
+![ChoomLang Banner](https://substackcdn.com/image/fetch/$s_!13f4!,w_1272,c_limit,f_webp,q_auto:good,fl_progressive:steep/https%3A%2F%2Fsubstack-post-media.s3.amazonaws.com%2Fpublic%2Fimages%2F5bd37e15-1e6c-4b31-a18e-2c515f5ad651_1536x1024.png)
 
 Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
