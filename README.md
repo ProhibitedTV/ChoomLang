@@ -3,11 +3,11 @@
 
 Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
-**v0.10 highlights:** workflow runner (`choom run`), workdir/state/transcript/resume, safe adapters, Ollama runner adapter coverage, and deterministic runtime semantics.
+**v1.0.0-rc.1 highlights:** workflow runner (`choom run`), workdir/state/transcript/resume, safe adapters, Ollama runner adapter coverage, and deterministic runtime semantics.
 
 ## Stability & Versioning
 
-ChoomLang defines a v1.0 stability contract for public behavior and compatibility guarantees:
+ChoomLang defines a v1.0 stability contract for public behavior and compatibility guarantees. DSL grammar stable as of v1.0:
 
 - Stability contract: [`docs/STABILITY.md`](docs/STABILITY.md)
 - Versioning policy (SemVer): [`docs/VERSIONING.md`](docs/VERSIONING.md)

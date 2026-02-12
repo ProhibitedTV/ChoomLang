@@ -6,6 +6,8 @@ The items below are considered stable API surface unless a future MAJOR release 
 
 ## 1) DSL grammar and canonical formatting
 
+**DSL grammar stable as of v1.0.**
+
 Stable guarantees:
 
 - The public DSL grammar shape remains:

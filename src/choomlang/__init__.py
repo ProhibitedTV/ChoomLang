@@ -1,6 +1,6 @@
 """ChoomLang package."""
 
-__version__ = "0.10.2"
+__version__ = "1.0.0rc1"
 
 from .dsl import DSLParseError, format_dsl, parse_dsl, serialize_dsl
 from .teach import explain_dsl
