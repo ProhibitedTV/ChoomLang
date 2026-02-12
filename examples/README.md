@@ -31,11 +31,22 @@ Recommended (explicit run folder):
 choom run examples/wallpaper_pack.choom --workdir runs/<runid> --timeout 900
 ```
 
-### Notes on timeouts and long-running generations
+### Runtime and timeout guidance
 
-- SDXL at `1920x1080` with higher step counts can take many minutes per image.
+- **Fast profile** (`1024x576`, `steps=14`, `n=1`): usually **30s-3m** per run on common local SDXL setups.
+- **HD profile** (`1920x1080`, `steps=30`, `n=4`): usually **8-25m** per run depending on GPU/VRAM.
+- Recommended `--timeout` values:
+  - Fast: **`--timeout 900`** (raise to 1200 if your machine is slower)
+  - HD: **`--timeout 2400`** (raise to 3000-3600 when increasing steps or batch size)
+
+### Timeouts and canceling long generations
+
 - If the ChoomLang client times out, A1111 may continue generating in the background.
-- Optional cancel tip: send `POST /sdapi/v1/interrupt` to A1111 (see A1111 API docs).
+- To stop in-progress jobs in A1111, call the interrupt API:
+
+```bash
+curl -X POST http://127.0.0.1:7860/sdapi/v1/interrupt
+```
 
 ### Expected outputs
 

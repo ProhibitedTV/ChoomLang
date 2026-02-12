@@ -1,7 +1,8 @@
 # HD mode profile (heavier): 1080p output with larger generation budget
 # NOTE: This can take many minutes per image on SDXL.
-# Recommended run command:
+# Recommended run command (raise timeout for slower machines):
 # choom run examples/wallpaper_pack_hd.choom --timeout 2400
+# If your GPU is slower or you increase steps/n, try --timeout 3000-3600.
 toolcall tool name=a1111_txt2img id=images prompt="stylized sci-fi wallpaper, glowing horizon, atmospheric haze, clean composition, high detail" negative="text, watermark, logo, lowres, blurry" width=1920 height=1080 steps=30 cfg=6.5 seed=42 n=4 sampler="Euler a"
 toolcall tool name=write_file id=manifest_path path=manifest.txt text=@images
 toolcall tool name=write_file path=index.html text="<!doctype html><html><head><meta charset='utf-8'><title>Wallpaper Pack (HD)</title><style>body{font-family:system-ui,sans-serif;margin:2rem;max-width:960px}pre{background:#111;color:#0f0;padding:1rem;border-radius:8px;overflow:auto}code{background:#f2f2f2;padding:0.1rem 0.3rem;border-radius:4px}</style></head><body><h1>Local Wallpaper Pack (HD)</h1><p>Generated files are listed in <code>manifest.txt</code>. Open each PNG filename from this folder.</p><p>Manifest path captured by workflow state: @manifest_path</p><pre>@images</pre></body></html>"
