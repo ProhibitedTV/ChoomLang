@@ -1,0 +1,10 @@
+{
+  "name": "echo_tool",
+  "tags": ["tool", "echo"],
+  "description": "Defaults for echo tool calls",
+  "defaults": {
+    "name": "echo",
+    "trace": "demo",
+    "verbose": false
+  }
+}

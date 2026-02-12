@@ -2,7 +2,7 @@
 
 Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
-**v0.8 highlights:** profile defaults, optional lint warnings, safe local `choom run`, and release-process polish.
+**v0.9 highlights:** generic profiles, profile schema validation, profile search/filter/override UX, and full version roll updates.
 
 ## What Problem ChoomLang Solves
 
@@ -52,7 +52,7 @@ If `--probe` fails, verify Ollama is running and both model names are available.
 ```bash
 pip install -e .
 choom profile list
-choom profile apply sdxl_cyberpunk_bg "gen img prompt="night skyline""
+choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro
 choom lint "jack txt tone=noir"
 choom run "toolcall tool name=echo trace=demo" --dry-run
 ```
@@ -60,25 +60,44 @@ choom run "toolcall tool name=echo trace=demo" --dry-run
 ```powershell
 pip install -e .
 choom profile list
-choom profile apply sdxl_cyberpunk_bg "gen img prompt="night skyline""
+choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro
 choom lint "jack txt tone=noir"
 choom run "toolcall tool name=echo trace=demo" --dry-run
 ```
 
 ## Profiles
 
-Profiles are JSON defaults in the repository `profiles/` directory.
+Profiles are reusable JSON defaults stored under `profiles/` and validated against `profiles/schema.json` when loaded.
 
 - `choom profile list`
+- `choom profile list --tag <tag>`
+- `choom profile search <substring>`
 - `choom profile show <name>`
-- `choom profile apply <name> "<dsl>"`
+- `choom profile apply <name> "<dsl>" --set key=value --set key=value`
 
 Apply rules:
 
 - only `params` keys are affected
 - `op`, `target`, and `count` are never changed
-- existing DSL params win over profile defaults
+- merge order: parse DSL -> apply profile defaults for missing keys -> apply `--set` overrides
+- `op`, `target`, and `count` are preserved
 - final DSL output is canonical with sorted params
+
+Bash examples:
+
+```bash
+choom profile list --tag image
+choom profile search portrait
+choom profile apply wallpaper "gen img prompt=\"night skyline\"" --set style=retro --set seed=7
+```
+
+PowerShell examples:
+
+```powershell
+choom profile list --tag image
+choom profile search portrait
+choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro --set seed=7
+```
 
 ## Run toolcall (safe adapters)
 

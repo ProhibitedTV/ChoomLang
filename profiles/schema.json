@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ChoomLang Profile",
+  "type": "object",
+  "required": ["name", "defaults"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {"type": "string"},
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "description": {"type": "string"},
+    "notes": {"type": "string"},
+    "defaults": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "number", "boolean", "null"]
+      }
+    }
+  }
+}

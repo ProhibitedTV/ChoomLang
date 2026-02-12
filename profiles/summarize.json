@@ -1,0 +1,10 @@
+{
+  "name": "summarize",
+  "tags": ["text", "summary"],
+  "description": "Defaults for digest-style summaries",
+  "defaults": {
+    "format": "bullets",
+    "max_points": 5,
+    "focus": "key_takeaways"
+  }
+}

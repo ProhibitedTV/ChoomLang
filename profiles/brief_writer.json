@@ -1,0 +1,11 @@
+{
+  "name": "brief_writer",
+  "tags": ["text", "writing", "brief"],
+  "description": "Defaults for concise informational writing",
+  "defaults": {
+    "tone": "clear",
+    "length": "short",
+    "style": "direct"
+  },
+  "notes": "Useful for summaries and quick updates."
+}

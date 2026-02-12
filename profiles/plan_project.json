@@ -1,0 +1,10 @@
+{
+  "name": "plan_project",
+  "tags": ["general", "planning", "tasks"],
+  "description": "Defaults for planning a small project",
+  "defaults": {
+    "horizon": "quarter",
+    "format": "checklist",
+    "priority": "balanced"
+  }
+}

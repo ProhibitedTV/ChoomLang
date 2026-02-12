@@ -1,0 +1,10 @@
+{
+  "name": "photoreal_portrait",
+  "tags": ["image", "portrait", "photoreal"],
+  "description": "Defaults for photorealistic portrait generation",
+  "defaults": {
+    "style": "photoreal",
+    "lighting": "natural",
+    "detail": "high"
+  }
+}

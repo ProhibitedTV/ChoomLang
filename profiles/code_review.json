@@ -1,0 +1,10 @@
+{
+  "name": "code_review",
+  "tags": ["text", "code", "review"],
+  "description": "Defaults for structured code review output",
+  "defaults": {
+    "focus": "correctness",
+    "severity": "medium",
+    "include_suggestions": true
+  }
+}

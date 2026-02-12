@@ -2,12 +2,43 @@ import json
 
 from choomlang import __version__
 from choomlang.cli import main
-from choomlang.profiles import apply_profile_to_dsl, list_profiles
+from choomlang.profiles import (
+    ProfileError,
+    apply_profile_to_dsl,
+    list_profiles,
+    search_profiles,
+    validate_profile_payload,
+)
 from choomlang.run import run_toolcall, RunError
 
 
-def test_version_is_0_8_0():
-    assert __version__ == "0.8.0"
+def test_version_is_0_9_0():
+    assert __version__ == "0.9.0"
+
+
+def test_profile_schema_validation_helper_valid_and_invalid():
+    validate_profile_payload(
+        {
+            "name": "demo",
+            "tags": ["text", "example"],
+            "description": "example",
+            "defaults": {"style": "plain", "count": 2, "safe": True, "note": None},
+        },
+        source="memory",
+    )
+
+    try:
+        validate_profile_payload(
+            {
+                "name": "bad",
+                "defaults": {"nested": {"bad": "value"}},
+            },
+            source="memory",
+        )
+    except ProfileError as exc:
+        assert "string|number|boolean|null" in str(exc)
+    else:
+        raise AssertionError("expected validation failure")
 
 
 def test_profile_list_and_apply_deterministic(tmp_path):
@@ -16,7 +47,8 @@ def test_profile_list_and_apply_deterministic(tmp_path):
     (profile_dir / "demo.json").write_text(
         """{
   "name": "demo",
-  "defaults": {"res": "1920x1080", "style": "cyberpunk"},
+  "tags": ["image", "cinematic"],
+  "defaults": {"res": "1920x1080", "style": "cinematic"},
   "notes": "demo"
 }
 """,
@@ -27,18 +59,101 @@ def test_profile_list_and_apply_deterministic(tmp_path):
     assert names == ["demo"]
     result = apply_profile_to_dsl(
         "demo",
-        'gen img prompt="city" style=retro',
+        "gen img[2] prompt=city",
         profiles_dir=profile_dir,
+        overrides={"style": "retro", "seed": 12},
     )
-    assert result == 'gen img prompt=city res=1920x1080 style=retro'
+    assert result == "gen img[2] prompt=city res=1920x1080 seed=12 style=retro"
+
+
+def test_profile_apply_preserves_op_target_count(tmp_path):
+    profile_dir = tmp_path / "profiles"
+    profile_dir.mkdir()
+    (profile_dir / "demo.json").write_text(
+        '{"name":"demo","defaults":{"tone":"calm"}}',
+        encoding="utf-8",
+    )
+
+    result = apply_profile_to_dsl("demo", "summarize txt[3] prompt=hello", profiles_dir=profile_dir)
+    assert result.startswith("summarize txt[3] ")
+
+
+def test_profile_search_and_tag_filter(tmp_path):
+    profile_dir = tmp_path / "profiles"
+    profile_dir.mkdir()
+    (profile_dir / "wallpaper.json").write_text(
+        '{"name":"wallpaper","tags":["Image","cinematic"],"description":"Wide wallpaper","defaults":{"res":"1920x1080"}}',
+        encoding="utf-8",
+    )
+    (profile_dir / "brief_writer.json").write_text(
+        '{"name":"brief_writer","tags":["text"],"description":"Concise writing","defaults":{"tone":"clear"}}',
+        encoding="utf-8",
+    )
+
+    assert list_profiles(profiles_dir=profile_dir, tag="image") == ["wallpaper"]
+    assert search_profiles("CONCISE", profiles_dir=profile_dir) == ["brief_writer"]
 
 
 def test_cli_profile_show(capsys):
-    code = main(["profile", "show", "osint_basic"])
+    code = main(["profile", "show", "classify_basic"])
     out = capsys.readouterr().out
     assert code == 0
     payload = json.loads(out)
-    assert payload["name"] == "osint_basic"
+    assert payload["name"] == "classify_basic"
+
+
+def test_cli_profile_list_skips_invalid(capsys, tmp_path, monkeypatch):
+    profile_dir = tmp_path / "profiles"
+    profile_dir.mkdir()
+    (profile_dir / "valid.json").write_text('{"name":"valid","defaults":{"x":1}}', encoding="utf-8")
+    (profile_dir / "broken.json").write_text('{"name":"broken","defaults":{"x":{"bad":1}}}', encoding="utf-8")
+
+    import choomlang.profiles as profiles_mod
+
+    monkeypatch.setattr(profiles_mod, "_profiles_dir", lambda profiles_dir=None: profile_dir)
+    code = main(["profile", "list"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert captured.out.strip() == "valid"
+    assert "skipping invalid profile" in captured.err
+
+
+def test_cli_profile_search_and_tag(capsys):
+    code = main(["profile", "list", "--tag", "tool"])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert code == 0
+    assert "echo_tool" in out
+    assert "write_file_safe" in out
+
+    code = main(["profile", "search", "portrait"])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert code == 0
+    assert out == ["photoreal_portrait"]
+
+
+def test_cli_profile_apply_set_overrides(capsys):
+    code = main(
+        [
+            "profile",
+            "apply",
+            "wallpaper",
+            "gen img[2] prompt=city",
+            "--set",
+            "style=retro",
+            "--set",
+            "seed=7",
+        ]
+    )
+    out = capsys.readouterr().out.strip()
+    assert code == 0
+    assert out == "gen img[2] prompt=city quality=high res=1920x1080 seed=7 style=retro"
+
+
+def test_cli_profile_apply_invalid_set_token(capsys):
+    code = main(["profile", "apply", "wallpaper", "gen img", "--set", "badtoken"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "expected key=value" in err
 
 
 def test_lint_warning_exit_codes(capsys):
