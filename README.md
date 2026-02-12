@@ -1,28 +1,22 @@
-# ChoomLang v0.6
+# ChoomLang
 
-ChoomLang is a deterministic AI-to-AI command language with two layers:
+ChoomLang is a deterministic two-layer agent protocol that maps a compact DSL to canonical JSON for reliable machine execution.
 
-- **Street layer**: compact DSL for humans/agents
-- **Core layer**: strict canonical JSON for machines
+## What Problem ChoomLang Solves
 
-This repo implements:
+- **LLM formatting drift:** free-form model output is inconsistent across turns and providers.
+- **Need deterministic agent protocol:** agents need strict, parseable messages instead of prompt-shaped text.
+- **JSON verbosity:** raw JSON is precise but expensive for humans (and many agent prompts) to write repeatedly.
+- **DSL fragility:** lightweight command syntaxes often break without a canonical machine representation.
+- **ChoomLang solution:** a canonical JSON contract + compact DSL + relay runtime for stable agent-to-agent exchange.
 
-- DSL parser/serializer (`DSL <-> JSON`)
-- Alias normalization (street ops -> canonical ops)
-- Teach mode (`token-by-token` explanation)
-- Validate mode (parse-only lint for DSL lines)
-- Ollama-backed relay mode (`choom relay`)
-- CLI (`choom`)
-- v0.6 Windows-oriented reliability: probe, warm-up, hardened structured fallback, and relay summaries
-- Tests + CI
+## 60-Second Quick Start
 
-## Install
+Install:
 
 ```bash
 pip install -e .
 ```
-
-## Quickstart
 
 Translate DSL to canonical JSON:
 
@@ -36,46 +30,16 @@ Translate JSON to DSL (`--reverse`):
 choom translate --reverse '{"op":"gen","target":"img","count":2,"params":{"res":"1024x1024","style":"studio"}}'
 ```
 
-Translate with autodetect (JSON input auto-converts to DSL):
-
-```bash
-choom translate '{"op":"gen","target":"img","count":2,"params":{"res":"1024x1024","style":"studio"}}'
-```
-
-Compact JSON output:
-
-```bash
-choom translate "gen txt tone=noir" --compact
-```
-
 Validate DSL input (parse-only):
 
 ```bash
 choom validate "gen img[2] style=studio"
 ```
 
-Teach mode:
-
-```bash
-choom teach "jack img[2] style=studio res=1024x1024 seed=42"
-```
-
-Relay mode (two local Ollama models speaking ChoomLang):
+Relay two local Ollama models speaking ChoomLang:
 
 ```bash
 choom relay --a-model llama3.1 --b-model qwen2.5 --turns 4
-```
-
-Relay with custom system prompts and starter message:
-
-```bash
-choom relay \
-  --a-model llama3.1 \
-  --b-model qwen2.5 \
-  --system-a "You are concise and practical." \
-  --system-b "You are cautious and verify assumptions." \
-  --start "scan txt labels=urgent,normal confidence=true" \
-  --turns 3
 ```
 
 ## Stdin / piping examples
