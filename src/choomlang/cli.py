@@ -88,11 +88,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--resume", type=int, help="Resume from 1-indexed filtered script step")
     p_run.add_argument("--max-steps", type=int, help="Maximum number of filtered script steps to run")
     p_run.add_argument("--dry-run", action="store_true", help="Plan script execution without side effects")
-    p_run.add_argument("--timeout", type=float, help="Reserved runtime timeout in seconds")
+    p_run.add_argument("--timeout", type=float, help="Runner step timeout/deadline in seconds")
     p_run.add_argument("--keep-alive", dest="keep_alive", type=float, help="Reserved runtime keep-alive in seconds")
     p_run.add_argument(
         "--a1111-url",
         help="Base URL for A1111 adapters (default: CHOOM_A1111_URL or http://127.0.0.1:7860)",
+    )
+    p_run.add_argument(
+        "--a1111-timeout",
+        type=float,
+        help="HTTP timeout in seconds for each A1111 request (default: CHOOM_A1111_TIMEOUT or --timeout)",
+    )
+    p_run.add_argument(
+        "--cancel-on-timeout",
+        action="store_true",
+        help="When A1111 txt2img times out, call /sdapi/v1/interrupt before failing",
     )
 
     p_script = sub.add_parser("script", help="Process multi-line ChoomLang scripts")
@@ -358,6 +368,12 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "run":
             a1111_url = args.a1111_url or os.environ.get("CHOOM_A1111_URL") or "http://127.0.0.1:7860"
+            env_a1111_timeout = os.environ.get("CHOOM_A1111_TIMEOUT")
+            a1111_timeout = args.a1111_timeout
+            if a1111_timeout is None and env_a1111_timeout not in {None, ""}:
+                a1111_timeout = float(env_a1111_timeout)
+            if a1111_timeout is None:
+                a1111_timeout = args.timeout
             results = run_script(
                 args.script,
                 workdir=args.workdir,
@@ -367,6 +383,8 @@ def main(argv: list[str] | None = None) -> int:
                 timeout=args.timeout,
                 keep_alive=args.keep_alive,
                 a1111_url=a1111_url,
+                a1111_timeout=a1111_timeout,
+                cancel_on_timeout=args.cancel_on_timeout,
             )
             for line in results:
                 print(line)

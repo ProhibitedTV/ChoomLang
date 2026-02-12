@@ -181,6 +181,58 @@ def test_a1111_txt2img_dry_run_returns_empty_list_without_request(tmp_path, monk
     assert out == "[]"
 
 
+
+def test_a1111_txt2img_timeout_triggers_interrupt_when_enabled(tmp_path, monkeypatch, capsys):
+    calls: list[str] = []
+
+    def fake_urlopen(req, timeout=None):
+        _ = timeout
+        calls.append(req.full_url)
+        if req.full_url.endswith('/sdapi/v1/txt2img'):
+            raise TimeoutError('timed out')
+        return _FakeResponse({})
+
+    monkeypatch.setattr('choomlang.adapters.request.urlopen', fake_urlopen)
+
+    with pytest.raises(RunError, match='request timed out'):
+        run_adapter(
+            'a1111_txt2img',
+            {'prompt': 'cat'},
+            tmp_path / 'artifacts',
+            False,
+            context={'a1111_timeout': 1.2, 'cancel_on_timeout': True},
+        )
+
+    assert calls == [
+        'http://127.0.0.1:7860/sdapi/v1/txt2img',
+        'http://127.0.0.1:7860/sdapi/v1/interrupt',
+    ]
+    captured = capsys.readouterr().out
+    assert 'interrupt succeeded' in captured
+
+
+def test_a1111_txt2img_retries_transient_error(tmp_path, monkeypatch):
+    attempts = {'count': 0}
+
+    def fake_urlopen(req, timeout=None):
+        _ = timeout
+        attempts['count'] += 1
+        if attempts['count'] < 3:
+            raise ConnectionResetError('connection reset by peer')
+        return _FakeResponse({'images': [base64.b64encode(b'img').decode('ascii')]})
+
+    monkeypatch.setattr('choomlang.adapters.request.urlopen', fake_urlopen)
+
+    out = run_adapter(
+        'a1111_txt2img',
+        {'prompt': 'cat', 'step': 3},
+        tmp_path / 'artifacts',
+        False,
+    )
+
+    assert attempts['count'] == 3
+    assert json.loads(out) == ['a1111_txt2img_0003_01_seedx.png']
+
 def test_resolve_artifact_path_rejects_traversal_and_absolute_paths(tmp_path):
     artifacts_dir = tmp_path / "artifacts"
     artifacts_dir.mkdir()

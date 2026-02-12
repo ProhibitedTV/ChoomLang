@@ -182,6 +182,15 @@ Runner URL configuration:
 - `choom run ... --a1111-url http://127.0.0.1:7860`
 - `CHOOM_A1111_URL=http://127.0.0.1:7860` (used when `--a1111-url` is not provided)
 
+Timeout + interrupt controls:
+
+- `--timeout` sets the runner step deadline (general script execution budget).
+- `--a1111-timeout` sets per-request HTTP timeout for `a1111_txt2img`.
+- `CHOOM_A1111_TIMEOUT` can provide the same per-request timeout when the flag is omitted.
+- If `--a1111-timeout` and `CHOOM_A1111_TIMEOUT` are both absent, A1111 requests fall back to `--timeout`.
+- `--cancel-on-timeout` sends `POST /sdapi/v1/interrupt` when `a1111_txt2img` times out, and logs whether interrupt succeeded.
+- A1111 requests retry automatically with a small backoff for transient failures (HTTP 5xx / connection-reset style errors).
+
 Example workflow lines:
 
 ```text

@@ -6,7 +6,7 @@ import json
 import base64
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
-from urllib import request
+from urllib import request, error
 
 from .errors import RunError
 from .llm import LLMClient, OllamaLLMClient
@@ -205,6 +205,31 @@ def _as_int(params: dict[str, Any], key: str) -> int | None:
         raise RunError(f"a1111_txt2img param '{key}' must be an integer") from exc
 
 
+def _a1111_should_retry(exc: Exception) -> bool:
+    if isinstance(exc, error.HTTPError):
+        return 500 <= exc.code < 600
+    if isinstance(exc, error.URLError):
+        return True
+    reset_markers = (
+        "connection reset",
+        "connection aborted",
+        "broken pipe",
+        "temporarily unavailable",
+    )
+    return any(marker in str(exc).lower() for marker in reset_markers)
+
+
+def _a1111_interrupt(base_url: str, timeout: float | None) -> bool:
+    endpoint = base_url.rstrip("/") + "/sdapi/v1/interrupt"
+    req = request.Request(endpoint, data=b"{}", method="POST")
+    req.add_header("Content-Type", "application/json")
+    try:
+        with request.urlopen(req, timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
 def _adapter_a1111_txt2img(
     params: dict[str, Any],
     artifacts_dir: Path,
@@ -231,6 +256,23 @@ def _adapter_a1111_txt2img(
             base_url = legacy_base_url
     if base_url is None:
         base_url = "http://127.0.0.1:7860"
+
+    request_timeout = timeout
+    if isinstance(context, dict) and context.get("a1111_timeout") is not None:
+        request_timeout = context.get("a1111_timeout")
+    if "timeout" in params and params.get("timeout") is not None:
+        request_timeout = params.get("timeout")
+    if request_timeout is not None:
+        try:
+            request_timeout = float(request_timeout)
+        except (TypeError, ValueError) as exc:
+            raise RunError("a1111_txt2img timeout must be numeric") from exc
+
+    cancel_on_timeout = False
+    if isinstance(context, dict):
+        cancel_on_timeout = bool(context.get("cancel_on_timeout", False))
+    if "cancel_on_timeout" in params:
+        cancel_on_timeout = bool(params.get("cancel_on_timeout"))
 
     seed_value = _as_int(params, "seed")
 
@@ -262,11 +304,32 @@ def _adapter_a1111_txt2img(
     req = request.Request(endpoint, data=body, method="POST")
     req.add_header("Content-Type", "application/json")
 
-    try:
-        with request.urlopen(req, timeout=timeout) as resp:
-            response_body = resp.read()
-    except Exception as exc:
-        raise RunError(f"a1111_txt2img request failed: {exc}") from exc
+    response_body: bytes | None = None
+    attempts = 3
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            with request.urlopen(req, timeout=request_timeout) as resp:
+                response_body = resp.read()
+            break
+        except TimeoutError as exc:
+            if cancel_on_timeout:
+                interrupted = _a1111_interrupt(base_url, request_timeout)
+                print(
+                    f"a1111_txt2img timeout; interrupt {'succeeded' if interrupted else 'failed'}",
+                    flush=True,
+                )
+            raise RunError(f"a1111_txt2img request timed out after {request_timeout}s") from exc
+        except Exception as exc:
+            last_exc = exc
+            if attempt < attempts and _a1111_should_retry(exc):
+                print(f"a1111_txt2img transient error (attempt {attempt}/{attempts}): {exc}; retrying", flush=True)
+                import time
+                time.sleep(0.2 * attempt)
+                continue
+            raise RunError(f"a1111_txt2img request failed: {exc}") from exc
+    if response_body is None:
+        raise RunError(f"a1111_txt2img request failed: {last_exc}")
 
     try:
         response_json = json.loads(response_body)
@@ -300,6 +363,7 @@ def _adapter_a1111_txt2img(
         output_paths.append(relative)
 
     return json.dumps(output_paths, separators=(",", ":"))
+
 
 
 BUILTIN_ADAPTERS: dict[str, Adapter] = {
