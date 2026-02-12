@@ -2,7 +2,7 @@
 
 Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
-**v0.9 highlights:** generic profiles, profile schema validation, profile search/filter/override UX, and full version roll updates.
+**v0.10 highlights:** workflow runner (`choom run`), workdir/state/transcript/resume, safe adapters, Ollama runner adapter coverage, and deterministic runtime semantics.
 
 ## What Problem ChoomLang Solves
 
@@ -54,7 +54,7 @@ pip install -e .
 choom profile list
 choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro
 choom lint "jack txt tone=noir"
-choom run "toolcall tool name=echo trace=demo" --dry-run
+choom run examples/workflow_v010.choom --workdir .choom-run --dry-run --max-steps 2
 ```
 
 ```powershell
@@ -62,7 +62,7 @@ pip install -e .
 choom profile list
 choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro
 choom lint "jack txt tone=noir"
-choom run "toolcall tool name=echo trace=demo" --dry-run
+choom run examples/workflow_v010.choom --workdir .choom-run --dry-run --max-steps 2
 ```
 
 ## Profiles
@@ -98,6 +98,41 @@ choom profile list --tag image
 choom profile search portrait
 choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro --set seed=7
 ```
+
+## Workflow Runner (v0.10)
+
+`choom run` executes `.choom` workflows line-by-line and persists runtime files in the selected work directory.
+
+- `--workdir <path>` controls where runtime files are written (`artifacts/`, `state.json`, `transcript.jsonl`).
+- `--resume N` resumes from filtered step `N` (1-indexed). Use the next step index from `transcript.jsonl` when continuing an interrupted run.
+- `id=<name>` captures an adapter output into `state.json`.
+- `@id` interpolation injects previously captured values into later step params.
+
+Minimal `.choom` example (`examples/workflow_v010.choom`):
+
+```text
+toolcall tool name=echo id=greeting text=hello
+toolcall tool name=write_file path=notes/hello.txt text=@greeting id=note_path
+toolcall tool name=read_file path=@note_path
+```
+
+Run it (Bash):
+
+```bash
+choom run examples/workflow_v010.choom --workdir .choom-run --resume 1 --max-steps 3
+```
+
+Run it (PowerShell):
+
+```powershell
+choom run examples/workflow_v010.choom --workdir .choom-run --resume 1 --max-steps 3
+```
+
+Artifacts + path safety:
+
+- Filesystem adapters are restricted to `<workdir>/artifacts`.
+- Absolute paths and parent traversal (`..`) are rejected.
+- Returned artifact paths are relative to `artifacts/` for deterministic reuse in later steps.
 
 ## Run toolcall (safe adapters)
 
