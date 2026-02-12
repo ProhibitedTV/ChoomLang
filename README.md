@@ -1,180 +1,144 @@
 # ChoomLang
 
-ChoomLang is a deterministic two-layer agent protocol that maps a compact DSL to canonical JSON for reliable machine execution.
+Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
 ## What Problem ChoomLang Solves
 
-- **LLM formatting drift:** free-form model output is inconsistent across turns and providers.
-- **Need deterministic agent protocol:** agents need strict, parseable messages instead of prompt-shaped text.
-- **JSON verbosity:** raw JSON is precise but expensive for humans (and many agent prompts) to write repeatedly.
-- **DSL fragility:** lightweight command syntaxes often break without a canonical machine representation.
-- **ChoomLang solution:** a canonical JSON contract + compact DSL + relay runtime for stable agent-to-agent exchange.
+LLM output drift is common: the same prompt often produces different wrappers, key ordering, or extra text. That makes automation fragile.
+
+ChoomLang addresses this by combining three parts:
+
+- **Canonical JSON** for deterministic machine handling.
+- **Compact DSL** for short human/agent-authored commands.
+- **Relay runtime** for model-to-model turn exchange with validation, fallback, and transcript logging.
+
+Why this split:
+
+- JSON alone is explicit but verbose for fast iteration.
+- DSL alone is compact but easier for models to break.
+- ChoomLang keeps both and normalizes to a canonical structure.
 
 ## 60-Second Quick Start
 
-Create and activate a virtual environment.
-
-Unix/macOS:
+### Bash (macOS/Linux)
 
 ```bash
-python3 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
+pip install -e .
+
+choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
 ```
 
-Windows PowerShell:
+### Windows PowerShell
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-```
-
-Install:
-
-```bash
 pip install -e .
-```
 
-Probe connectivity and model readiness:
-
-```bash
 choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
-```
-
-Run structured relay with warmup and logging:
-
-```bash
 choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
 ```
 
-## Stdin / piping examples
+If `--probe` fails, verify Ollama is running and both model names are available.
 
-Read translation input from stdin:
+## DSL Overview
 
-```bash
-echo 'gen txt tone=noir' | choom translate
-```
-
-Read JSON from stdin and auto-detect reverse translation:
-
-```bash
-echo '{"op":"gen","target":"txt","count":1,"params":{"tone":"noir"}}' | choom translate
-```
-
-Validate stdin:
-
-```bash
-echo 'jack img[2] style=studio' | choom validate
-```
-
-Run tests:
-
-```bash
-pytest
-```
-
-Format one DSL line to canonical form:
-
-```bash
-choom fmt 'jack txt[1] z=2 a="two words"'
-# gen txt a="two words" z=2
-```
-
-Process script files (JSONL by default):
-
-```bash
-choom script examples/dsl.txt
-```
-
-Process stdin script and keep going on parse errors:
-
-```bash
-cat batch.choom | choom script - --to dsl --continue
-```
-
-Emit JSON Schema for canonical JSON payloads:
-
-```bash
-choom schema
-```
-
-Print a reusable guard/repair prompt:
-
-```bash
-choom guard
-choom guard --error "invalid header" --previous "hello world"
-```
-
-Structured relay mode (canonical JSON over Ollama format):
-
-```bash
-choom relay --a-model llama3.1 --b-model qwen2.5 --structured --schema
-```
-
-Relay transcript logging (JSONL):
-
-```bash
-choom relay --a-model llama3.1 --b-model qwen2.5 --structured --log relay.jsonl
-```
-
-## Structured Mode
-
-- Uses Ollama structured outputs via the `format` field.
-- Default behavior is schema-first (`--schema` enabled with `--structured`) then JSON fallback.
-- Why this matters: deterministic machine-parseable turn payloads and reduced parser drift.
-- Use `--no-schema` for schema incompatibility/debug scenarios where plain JSON format is more reliable for a given model.
-- Relay fallback controls: `--no-fallback` disables structured retries, and `--strict` stops on structured/JSON failure with diagnostic details.
-
-
-Recommended on Windows PowerShell:
-
-```powershell
-choom relay --a-model llama3.1 --b-model qwen2.5 --structured --schema --timeout 240 --keep-alive 600
-```
-
-Relay reliability controls:
-- `--timeout SECONDS` (default `180`) applies to all Ollama HTTP requests.
-- `--keep-alive SECONDS` (default `300`) is sent as Ollama `keep_alive` for `/api/chat` and `/api/generate`.
-- `--no-fallback` disables structured auto-fallback.
-
-Structured fallback behavior:
-1. `--structured --schema` tries schema format first (unless `--no-schema`).
-2. On timeout/HTTP/non-JSON or invalid structured payload, relay logs a fallback reason and retries once with `format="json"`.
-3. If JSON retry fails: `--strict` exits with stage + reason + raw response; otherwise relay may fall back to DSL unless `--no-fallback` is set.
-
-`choom relay --probe` quick check (connectivity + model readiness):
-
-```bash
-choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
-```
-
-Recommended Windows flow:
-1. `choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300`
-2. `choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300`
-
-Copy/paste structured demo:
-
-```bash
-choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
-```
-
-For a minimal end-to-end walkthrough (including transcript field meanings and a JSONL sample), see [`DEMO.md`](DEMO.md).
-
-
-Lenient mode note: `validate`, `fmt`, and `relay` support `--lenient` to ignore only a final standalone `.`, `,`, or `;` token.
-
-## DSL shape
+Grammar:
 
 ```text
 <op> <target>[count] key=value key=value ...
 ```
 
-- `op` + `target`: required operation and modality/tool target; aliases are accepted and normalized to canonical ops in JSON.
-- `[count]` + `key=value ...`: optional repeat count (default `1`) and optional space-delimited params with bare or quoted values.
+Examples:
 
-## Examples
+```text
+gen img[2] style=studio res=1024x1024
+scan txt labels=urgent,normal confidence=true
+ping tool service=renderer timeout=1.5
+```
 
-1. Generation: `gen img style=studio res=1024x1024`
-2. Classification alias: `scan img[2] model="vision v2" threshold=0.82` (`scan` normalizes to `classify`)
-3. Tool-forward case: `relay txt channel=ops priority=2` (`relay` normalizes to `forward`)
+Alias normalization happens during parse/serialization. Example mappings:
 
-See [`spec.md`](spec.md) and [`grammar.md`](grammar.md) for full details.
+- `jack -> gen`
+- `scan -> classify`
+- `ghost -> summarize`
+- `forge -> plan`
+- `ping -> healthcheck`
+- `call -> toolcall`
+- `relay -> forward`
+
+## Structured Relay Mode
+
+Use structured mode when you want deterministic model output under relay:
+
+```bash
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --schema
+```
+
+Behavior:
+
+1. With `--structured`, relay requests JSON output from Ollama.
+2. With schema enabled (`--schema`, default), relay first sends canonical schema in `format`.
+3. If schema response fails validation/parse/transport, relay retries once with `format="json"`.
+4. If that also fails:
+   - `--strict` (default) returns an error.
+   - Without strict, relay may fall back to DSL unless `--no-fallback` is set.
+
+Use `--no-schema` if a model/version struggles with schema-format responses but can still return valid JSON with `format="json"`.
+
+## Example Transcript (JSONL Snippet)
+
+When `--log relay.jsonl` is enabled, each turn appends one record.
+
+```json
+{"dsl":"gen txt tone=noir","elapsed_ms":812,"error":null,"fallback_reason":null,"http_status":200,"keep_alive_s":300.0,"mode":"structured","model":"llama3.1","parsed":{"count":1,"op":"gen","params":{"tone":"noir"},"target":"txt"},"raw":"{\"op\":\"gen\",\"target\":\"txt\",\"count\":1,\"params\":{\"tone\":\"noir\"}}","request_id":1,"request_mode":"structured-schema","retry":0,"side":"A","stage":"structured-schema","timeout_s":240.0,"ts":"2026-01-01T12:00:00.000000+00:00"}
+{"dsl":"summarize txt max_tokens=120","elapsed_ms":944,"error":null,"fallback_reason":"schema-failed:...","http_status":200,"keep_alive_s":300.0,"mode":"structured","model":"qwen2.5","parsed":{"count":1,"op":"summarize","params":{"max_tokens":120},"target":"txt"},"raw":"{\"op\":\"summarize\",\"target\":\"txt\",\"count\":1,\"params\":{\"max_tokens\":120}}","request_id":2,"request_mode":"structured-json","retry":0,"side":"B","stage":"structured-json","timeout_s":240.0,"ts":"2026-01-01T12:00:01.000000+00:00"}
+```
+
+See [DEMO.md](DEMO.md) for a complete minimal run.
+
+## CLI Reference (Condensed)
+
+Use `choom --help` and `choom <command> --help` for full arguments.
+
+- `translate`: DSL ↔ JSON conversion (`--reverse`, `--compact`)
+- `fmt`: canonicalize one DSL line
+- `validate`: parse-check DSL line
+- `script`: process multi-line scripts (`--to jsonl|dsl`, `--continue`)
+- `schema`: print canonical JSON schema
+- `guard`: print model repair prompt
+- `relay`: Ollama relay (`--structured`, `--schema/--no-schema`, `--probe`, `--warm`, `--log`)
+- `teach`: token-by-token DSL explanation
+
+## Recommended Workflows
+
+### Relay: Probe → Warm → Structured
+
+```bash
+choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
+```
+
+### Script + Validate Chain
+
+```bash
+choom validate "gen img style=studio"
+choom script examples/dsl.txt --to jsonl
+```
+
+## References
+
+- Protocol and grammar details: [spec.md](spec.md)
+- Grammar notes: [grammar.md](grammar.md)
+- Relay walkthrough: [DEMO.md](DEMO.md)
+
+## Contributing
+
+- Python 3.10+
+- Install editable package: `pip install -e .`
+- Run tests: `pytest`
+- Keep changes deterministic and focused
+- For CLI behavior updates, keep docs and examples in sync
