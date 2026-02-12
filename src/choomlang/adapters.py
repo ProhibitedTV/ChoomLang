@@ -7,8 +7,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from .errors import RunError
+from .llm import LLMClient, OllamaLLMClient
 
-Adapter = Callable[[dict[str, Any], Path, bool], str]
+Adapter = Callable[[dict[str, Any], Path, bool, float | None, float | None, LLMClient], str]
 
 
 def _validate_relative_artifact_path(raw_path: str) -> PurePosixPath:
@@ -31,13 +32,33 @@ def resolve_artifact_path(base_dir: Path, raw_path: str) -> tuple[Path, str]:
     return resolved, rel_path.as_posix()
 
 
-def _adapter_echo(params: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+def _adapter_echo(
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    timeout: float | None,
+    keep_alive: float | None,
+    llm_client: LLMClient,
+) -> str:
     _ = artifacts_dir
     _ = dry_run
+    _ = timeout
+    _ = keep_alive
+    _ = llm_client
     return json.dumps(params, sort_keys=True)
 
 
-def _adapter_write_file(params: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+def _adapter_write_file(
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    timeout: float | None,
+    keep_alive: float | None,
+    llm_client: LLMClient,
+) -> str:
+    _ = timeout
+    _ = keep_alive
+    _ = llm_client
     raw_path = str(params.get("path", ""))
     if not raw_path:
         raise RunError("write_file requires param 'path'")
@@ -50,8 +71,18 @@ def _adapter_write_file(params: dict[str, Any], artifacts_dir: Path, dry_run: bo
     return relative
 
 
-def _adapter_read_file(params: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+def _adapter_read_file(
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    timeout: float | None,
+    keep_alive: float | None,
+    llm_client: LLMClient,
+) -> str:
     _ = dry_run
+    _ = timeout
+    _ = keep_alive
+    _ = llm_client
     raw_path = str(params.get("path", ""))
     if not raw_path:
         raise RunError("read_file requires param 'path'")
@@ -61,7 +92,17 @@ def _adapter_read_file(params: dict[str, Any], artifacts_dir: Path, dry_run: boo
     return destination.read_text(encoding="utf-8")
 
 
-def _adapter_mkdir(params: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+def _adapter_mkdir(
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    timeout: float | None,
+    keep_alive: float | None,
+    llm_client: LLMClient,
+) -> str:
+    _ = timeout
+    _ = keep_alive
+    _ = llm_client
     raw_path = str(params.get("path", ""))
     if not raw_path:
         raise RunError("mkdir requires param 'path'")
@@ -71,8 +112,18 @@ def _adapter_mkdir(params: dict[str, Any], artifacts_dir: Path, dry_run: bool) -
     return relative
 
 
-def _adapter_list_dir(params: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+def _adapter_list_dir(
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    timeout: float | None,
+    keep_alive: float | None,
+    llm_client: LLMClient,
+) -> str:
     _ = dry_run
+    _ = timeout
+    _ = keep_alive
+    _ = llm_client
     raw_path = str(params.get("path", "."))
     destination, _ = resolve_artifact_path(artifacts_dir, raw_path)
     if not destination.exists() or not destination.is_dir():
@@ -81,19 +132,79 @@ def _adapter_list_dir(params: dict[str, Any], artifacts_dir: Path, dry_run: bool
     return json.dumps(entries, separators=(",", ":"))
 
 
+def _adapter_ollama_chat(
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    timeout: float | None,
+    keep_alive: float | None,
+    llm_client: LLMClient,
+) -> str:
+    _ = artifacts_dir
+    _ = dry_run
+    model = params.get("model")
+    if not isinstance(model, str) or not model:
+        raise RunError("ollama_chat requires param 'model'")
+    prompt = params.get("prompt")
+    if prompt is not None and not isinstance(prompt, str):
+        prompt = str(prompt)
+    messages = params.get("messages")
+    normalized_messages: list[dict[str, str]] | None = None
+    if messages is not None:
+        if isinstance(messages, str):
+            candidate = messages.strip()
+            if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in {"\"", "'"}:
+                candidate = candidate[1:-1]
+            try:
+                messages_obj = json.loads(candidate)
+            except json.JSONDecodeError as exc:
+                raise RunError("ollama_chat param 'messages' must be valid JSON") from exc
+        else:
+            messages_obj = messages
+        if not isinstance(messages_obj, list) or not messages_obj:
+            raise RunError("ollama_chat param 'messages' must be a non-empty list")
+        normalized_messages = []
+        for item in messages_obj:
+            if not isinstance(item, dict):
+                raise RunError("ollama_chat messages entries must be objects")
+            role = item.get("role")
+            content = item.get("content")
+            if not isinstance(role, str) or not isinstance(content, str):
+                raise RunError("ollama_chat messages require string role/content")
+            normalized_messages.append({"role": role, "content": content})
+    return llm_client.chat(
+        model,
+        prompt=prompt,
+        messages=normalized_messages,
+        timeout=timeout,
+        keep_alive=keep_alive,
+    )
+
+
 BUILTIN_ADAPTERS: dict[str, Adapter] = {
     "echo": _adapter_echo,
     "list_dir": _adapter_list_dir,
     "mkdir": _adapter_mkdir,
     "read_file": _adapter_read_file,
     "write_file": _adapter_write_file,
+    "ollama": _adapter_ollama_chat,
+    "ollama_chat": _adapter_ollama_chat,
 }
 
 
-def run_adapter(name: str, params: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+def run_adapter(
+    name: str,
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    *,
+    timeout: float | None = None,
+    keep_alive: float | None = None,
+    llm_client: LLMClient | None = None,
+) -> str:
     adapter = BUILTIN_ADAPTERS.get(name)
     if adapter is None:
         known = ", ".join(sorted(BUILTIN_ADAPTERS))
         raise RunError(f"unknown tool adapter '{name}'. known adapters: {known}")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    return adapter(params, artifacts_dir, dry_run)
+    return adapter(params, artifacts_dir, dry_run, timeout, keep_alive, llm_client or OllamaLLMClient())
