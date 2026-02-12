@@ -1,4 +1,4 @@
-# ChoomLang Specification v0.4
+# ChoomLang Specification v0.5
 
 ## Goals
 
@@ -9,6 +9,7 @@ ChoomLang provides a deterministic command language for agent-to-agent exchange:
 3. Reversible translation with stable serialization
 4. Local model relay mode over Ollama (**v0.2**)
 5. Structured relay, transcripts, and lenient parsing ergonomics (**v0.4**)
+6. Relay reliability controls and deterministic protocol contracts (**v0.5**)
 
 ## Canonical JSON form
 
@@ -64,7 +65,7 @@ Value types:
 Both aliases and canonical operations are accepted in DSL input.
 Canonical JSON always stores canonical operation names.
 
-## CLI commands (v0.4)
+## CLI commands (v0.5)
 
 - `choom translate [input]`
   - Autodetects input type when `--reverse` is not set:
@@ -86,6 +87,9 @@ Canonical JSON always stores canonical operation names.
   - `--raw-json` prints raw model content alongside canonical DSL
   - `--log <path>` appends per-turn JSONL transcript records
   - `--lenient` affects DSL mode only
+  - `--timeout` sets urllib timeout for all relay requests
+  - `--keep-alive` forwards Ollama `keep_alive` in relay requests
+  - `--no-fallback` disables automatic schema/json->DSL fallback in structured mode
 
 - `choom fmt [dsl]`
   - `--lenient` uses the same trailing-token relaxation during parse
@@ -109,9 +113,9 @@ Canonical JSON always stores canonical operation names.
   - `--error` and `--previous` add targeted context
   - Always instructs models: `Reply with exactly one valid ChoomLang DSL line and no extra text.`
 
-## Relay semantics (v0.4)
+## Relay semantics (v0.5)
 
-Relay uses Ollama endpoint `http://localhost:11434/api/chat` with fallback to `/api/generate`.
+Relay uses Ollama endpoint `http://localhost:11434/api/chat` with fallback to `/api/generate` for DSL mode.
 
 Required args:
 - `--a-model`
@@ -123,16 +127,40 @@ Optional args:
 - `--system-a`, `--system-b`
 - `--start` (initial ChoomLang line; default `ping tool service=relay`)
 - `--strict/--no-strict` (default strict)
+- `--timeout` (default `180`)
+- `--keep-alive` (default `300`)
+- `--structured`, `--schema/--no-schema`, `--no-fallback`
 
-Strict mode behavior:
-1. Model output must be valid ChoomLang DSL.
-2. If invalid, CLI sends a corrective instruction to that same model and retries once.
-3. If second attempt is invalid, relay aborts with a clear error.
+Protocol contracts:
+- DSL mode defaults both system prompts to a deterministic one-line DSL contract when `--system-a/--system-b` are not provided.
+- Structured mode can include a minimal contract: `Return JSON only. Match the requested schema exactly.`
 
-Safety limits:
-- Relay enforces message size limits.
-- Relay stops after configured turn count.
-- Connection and HTTP failures produce user-facing relay errors.
+Structured fallback state machine:
+1. If `--structured --schema`, first request uses `format=<canonical schema>` (`request_mode=structured-schema`).
+2. On schema-stage timeout/HTTP error/invalid JSON response, relay warns and retries once with `format="json"` (`request_mode=structured-json`) unless `--no-fallback`.
+3. If JSON stage fails:
+   - strict mode: fail with clear stage diagnostics including last raw response
+   - non-strict mode: fallback to guarded DSL generation (`request_mode=fallback-dsl`) and continue best-effort.
+
+Transcript JSONL record format (`--log`):
+```json
+{
+  "ts": "ISO8601",
+  "side": "A|B",
+  "model": "...",
+  "mode": "dsl|structured",
+  "request_mode": "dsl|structured-schema|structured-json|fallback-dsl",
+  "raw": "raw assistant content",
+  "parsed": {"op":"...","target":"...","count":1,"params":{}},
+  "dsl": "canonical dsl or null",
+  "error": "error string or null",
+  "retry": 0,
+  "elapsed_ms": 12,
+  "timeout_s": 180,
+  "keep_alive_s": 300
+}
+```
+JSONL appends are flushed per line.
 
 ## Default targets (extensible)
 

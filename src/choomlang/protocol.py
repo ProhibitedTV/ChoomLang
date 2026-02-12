@@ -65,6 +65,23 @@ def build_guard_prompt(error: str | None = None, previous: str | None = None) ->
     return " ".join(parts)
 
 
+def build_contract_prompt(mode: str = "dsl") -> str:
+    """Build deterministic protocol contract text for model system prompts."""
+    if mode == "dsl":
+        return (
+            "Reply with exactly one valid ChoomLang DSL line and no extra text. "
+            "Grammar: <op> <target>[count] key=value ... "
+            "Bans: no trailing punctuation, no standalone symbols, no JSON, one line only. "
+            "Examples: ping txt; gen txt prompt=\"hello\"; "
+            "classify txt sentiment=polarity; toolcall tool[1] name=search query=\"cats\"."
+        )
+
+    if mode == "structured":
+        return "Return JSON only. Match the requested schema exactly."
+
+    raise ValueError("mode must be 'dsl' or 'structured'")
+
+
 def canonical_json_schema() -> dict[str, object]:
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
