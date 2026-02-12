@@ -6,7 +6,7 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .llm import LLMClient
@@ -190,7 +190,7 @@ def run_script(
                     payload=payload,
                     status="success",
                     elapsed_ms=_elapsed_ms(started),
-                    output=output,
+                    output=_summarize_output_for_transcript(payload, output),
                     stored_id=stored_id,
                     error=None,
                 )
@@ -347,6 +347,36 @@ def _store_output_if_requested(state: RunnerState, payload: dict[str, Any], outp
         return None
     state[stored_id] = output
     return stored_id
+
+
+def _summarize_output_for_transcript(payload: dict[str, Any], output: Any) -> Any:
+    if not _is_a1111_toolcall(payload):
+        return output
+    if not isinstance(output, str):
+        return output
+    try:
+        decoded = json.loads(output)
+    except json.JSONDecodeError:
+        return output
+    if not isinstance(decoded, list) or not all(_is_safe_relative_path(item) for item in decoded):
+        return output
+    return {"files": decoded, "count": len(decoded)}
+
+
+def _is_a1111_toolcall(payload: dict[str, Any]) -> bool:
+    if payload.get("op") != "toolcall" or payload.get("target") != "tool":
+        return False
+    params = payload.get("params")
+    return isinstance(params, dict) and params.get("name") == "a1111_txt2img"
+
+
+def _is_safe_relative_path(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    path = PurePosixPath(value)
+    if path.is_absolute():
+        return False
+    return all(part not in {"", ".", ".."} for part in path.parts)
 
 
 def _append_transcript(transcript_file: Any, step_result: StepResult) -> None:
