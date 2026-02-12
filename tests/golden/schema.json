@@ -1,0 +1,111 @@
+{
+  "$defs": {
+    "knownOp": {
+      "enum": [
+        "gen",
+        "classify",
+        "summarize",
+        "plan",
+        "healthcheck",
+        "toolcall",
+        "forward"
+      ],
+      "type": "string"
+    },
+    "knownTarget": {
+      "enum": [
+        "img",
+        "txt",
+        "aud",
+        "vid",
+        "vec",
+        "tool",
+        "script"
+      ],
+      "type": "string"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "op": {
+            "const": "gen"
+          },
+          "target": {
+            "const": "script"
+          }
+        },
+        "required": [
+          "op",
+          "target"
+        ]
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "not": {
+              "required": [
+                "prompt"
+              ]
+            },
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "text"
+            ],
+            "type": "object"
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "count": {
+      "default": 1,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "op": {
+      "$ref": "#/$defs/knownOp",
+      "description": "Canonical operation name."
+    },
+    "params": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "number"
+          },
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "default": {},
+      "type": "object"
+    },
+    "target": {
+      "$ref": "#/$defs/knownTarget",
+      "description": "Canonical target domain."
+    }
+  },
+  "required": [
+    "op",
+    "target",
+    "count",
+    "params"
+  ],
+  "title": "ChoomLang canonical payload",
+  "type": "object"
+}
