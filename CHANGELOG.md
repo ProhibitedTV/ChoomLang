@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.0
+
+- Added the `choom run` workflow runner for multi-step `.choom` execution with deterministic step records.
+- Added workflow persistence via `--workdir`, including `state.json` storage, `transcript.jsonl` append-only logging, and resume semantics through `--resume` (auto or explicit step index).
+- Expanded safe adapter coverage with fail-closed artifact path validation for local filesystem operations.
+- Added Ollama runner adapter support (`name=ollama` / `name=ollama_chat`) with fake-client tested execution paths.
+- Hardened deterministic logging and state semantics: sorted-key JSON writes, atomic state updates, and stable completed-step counting for resume behavior.
+
 ## 0.9.0
 
 - Replaced project-specific profiles with a generic profile pack spanning text, image, general, and tool workflows.

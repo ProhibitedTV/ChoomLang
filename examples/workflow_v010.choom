@@ -1,0 +1,3 @@
+toolcall tool name=echo id=greeting text=hello
+toolcall tool name=write_file path=notes/hello.txt text=@greeting id=note_path
+toolcall tool name=read_file path=@note_path
