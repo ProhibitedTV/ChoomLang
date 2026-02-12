@@ -5,10 +5,13 @@ import pytest
 from choomlang.protocol import build_contract_prompt
 from choomlang.relay import (
     RelayError,
+    build_chat_request,
+    build_ping_messages,
     build_transcript_record,
     decide_structured_recovery,
     parse_structured_reply,
     strict_validate_with_retry,
+    summarize_transcript,
 )
 
 
@@ -73,29 +76,64 @@ def test_decide_structured_recovery_matrix():
     assert decide_structured_recovery(
         schema_failed=True, json_failed=True, strict=False, fallback_enabled=True
     ) == "fallback-dsl"
+    assert decide_structured_recovery(
+        schema_failed=True, json_failed=False, strict=False, fallback_enabled=False
+    ) == "fail-no-fallback"
+
+
+def test_build_chat_request_for_structured_mode_enforces_stream_false():
+    payload = build_chat_request(
+        model="llama",
+        messages=[{"role": "user", "content": "hello"}],
+        seed=42,
+        response_format="json",
+        keep_alive=300,
+    )
+    assert payload == {
+        "model": "llama",
+        "messages": [{"role": "user", "content": "hello"}],
+        "stream": False,
+        "options": {"seed": 42},
+        "keep_alive": 300,
+        "format": "json",
+    }
+
+
+def test_build_ping_messages_contains_canonical_ping_json():
+    messages = build_ping_messages()
+    assert len(messages) == 1
+    assert messages[0]["role"] == "user"
+    assert '"op": "ping"' in messages[0]["content"]
 
 
 def test_build_transcript_record_shape_and_json_serializable():
     record = build_transcript_record(
+        request_id=7,
         side="A",
         model="demo",
         mode="structured",
+        stage="structured-schema",
         request_mode="structured-schema",
+        http_status=200,
         raw='{"op":"gen","target":"txt"}',
         parsed={"op": "gen", "target": "txt", "count": 1, "params": {}},
         dsl="gen txt",
         error=None,
-        retry=0,
+        retry=1,
         elapsed_ms=12,
         timeout_s=180,
         keep_alive_s=300,
+        fallback_reason="schema-timeout",
     )
     assert set(record) == {
         "ts",
+        "request_id",
         "side",
         "model",
         "mode",
+        "stage",
         "request_mode",
+        "http_status",
         "raw",
         "parsed",
         "dsl",
@@ -104,7 +142,41 @@ def test_build_transcript_record_shape_and_json_serializable():
         "elapsed_ms",
         "timeout_s",
         "keep_alive_s",
+        "fallback_reason",
     }
     assert record["request_mode"] == "structured-schema"
+    assert record["stage"] == "structured-schema"
     assert record["elapsed_ms"] == 12
     json.dumps(record, sort_keys=True)
+
+
+def test_summarize_transcript_aggregates_retries_fallbacks_and_latency():
+    summary = summarize_transcript(
+        [
+            {
+                "stage": "structured-schema",
+                "elapsed_ms": 100,
+                "retry": 0,
+                "fallback_reason": None,
+            },
+            {
+                "stage": "structured-json",
+                "elapsed_ms": 200,
+                "retry": 1,
+                "fallback_reason": "schema-failed:timeout",
+            },
+            {
+                "stage": "structured-json",
+                "elapsed_ms": 300,
+                "retry": 0,
+                "fallback_reason": None,
+            },
+        ]
+    )
+    assert summary["total_turns"] == 3
+    assert summary["retries"] == 1
+    assert summary["fallbacks_by_stage"] == {"structured-json": 1}
+    assert summary["elapsed_ms_by_stage"]["structured-json"] == {
+        "avg_ms": 250.0,
+        "median_ms": 250.0,
+    }

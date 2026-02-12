@@ -8,7 +8,7 @@ import sys
 
 from .dsl import DSLParseError, format_dsl, parse_dsl
 from .protocol import build_guard_prompt, canonical_json_schema, script_to_dsl, script_to_jsonl
-from .relay import OllamaClient, RelayError, run_relay
+from .relay import OllamaClient, RelayError, run_probe, run_relay
 from .teach import explain_dsl
 from .translate import dsl_to_json, json_text_to_dsl
 
@@ -72,6 +72,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_relay.add_argument("--timeout", type=float, default=180.0, help="HTTP timeout in seconds for relay requests")
     p_relay.add_argument("--keep-alive", dest="keep_alive", type=float, default=300.0, help="Ollama keep_alive value in seconds")
     p_relay.add_argument("--no-fallback", action="store_true", help="Disable structured schema/json automatic fallback")
+    p_relay.add_argument("--probe", action="store_true", help="Probe Ollama connectivity/model readiness and exit")
+    p_relay.add_argument("--warm", action="store_true", help="Pre-warm both relay models before turn exchange")
 
     return parser
 
@@ -153,8 +155,29 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "relay":
+            client = OllamaClient(timeout=args.timeout, keep_alive=args.keep_alive)
+            if args.probe:
+                ok, report = run_probe(client=client, models=[args.a_model, args.b_model])
+                print("probe report:")
+                for entry in report:
+                    if entry["kind"] == "tags":
+                        status = "ok" if entry["ok"] else "fail"
+                        print(
+                            f"- /api/tags: {status} http={entry.get('http_status')} elapsed_ms={entry.get('elapsed_ms')}"
+                        )
+                        if entry.get("reason"):
+                            print(f"  reason: {entry['reason']}")
+                    else:
+                        status = "ok" if entry["ok"] else "fail"
+                        print(
+                            f"- model {entry['model']}: {status} http={entry.get('http_status')} elapsed_ms={entry.get('elapsed_ms')}"
+                        )
+                        if entry.get("reason"):
+                            print(f"  reason: {entry['reason']}")
+                return 0 if ok else 2
+
             transcript = run_relay(
-                client=OllamaClient(timeout=args.timeout, keep_alive=args.keep_alive),
+                client=client,
                 a_model=args.a_model,
                 b_model=args.b_model,
                 turns=args.turns,
@@ -169,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                 raw_json=args.raw_json,
                 log_path=args.log,
                 lenient=args.lenient,
+                warm=args.warm,
             )
             for speaker, dsl_line, payload, raw in transcript:
                 print(f"{speaker}: {dsl_line}")

@@ -1,8 +1,7 @@
-"""Relay helpers for model-to-model ChoomLang exchanges via Ollama."""
-
 from __future__ import annotations
 
 import json
+import statistics
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,11 +15,87 @@ from .translate import json_to_dsl
 
 OLLAMA_URL = "http://localhost:11434"
 MAX_MESSAGE_CHARS = 4000
+PING_PAYLOAD = {"op": "ping", "target": "txt", "count": 1, "params": {}}
 RequestMode = Literal["dsl", "structured-schema", "structured-json", "fallback-dsl"]
 
 
 class RelayError(RuntimeError):
     """Raised when relay execution fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        raw_response: str | None = None,
+        reason: str | None = None,
+        stage: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.raw_response = raw_response
+        self.reason = reason
+        self.stage = stage
+
+
+def build_ping_messages() -> list[dict[str, str]]:
+    return [
+        {
+            "role": "user",
+            "content": (
+                "Return JSON only with no extra text. "
+                f"Reply exactly with: {json.dumps(PING_PAYLOAD, sort_keys=True)}"
+            ),
+        }
+    ]
+
+
+def build_chat_request(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    seed: int | None = None,
+    response_format: str | dict[str, Any] | None = None,
+    keep_alive: float | None = None,
+    stream: bool = False,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"model": model, "messages": messages, "stream": stream}
+    if seed is not None:
+        payload["options"] = {"seed": seed}
+    if keep_alive is not None:
+        payload["keep_alive"] = keep_alive
+    if response_format is not None:
+        payload["format"] = response_format
+    return payload
+
+
+def call_ollama_chat(
+    client: "OllamaClient",
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    seed: int | None,
+    response_format: str | dict[str, Any] | None,
+    timeout: float,
+    keep_alive: float | None,
+) -> tuple[str, int, int]:
+    payload = build_chat_request(
+        model=model,
+        messages=messages,
+        seed=seed,
+        response_format=response_format,
+        keep_alive=keep_alive,
+        stream=False,
+    )
+    data, elapsed_ms, status = client.post_json("/api/chat", payload, timeout=timeout)
+    content = data.get("message", {}).get("content")
+    if not isinstance(content, str):
+        raise RelayError(
+            "Ollama returned an unexpected /api/chat response shape",
+            http_status=status,
+            raw_response=json.dumps(data, sort_keys=True),
+        )
+    return content, elapsed_ms, status
 
 
 class OllamaClient:
@@ -37,29 +112,68 @@ class OllamaClient:
         self.timeout = timeout
         self.keep_alive = keep_alive
 
+    def get_tags(self, *, timeout: float | None = None) -> tuple[dict[str, Any], int, int]:
+        req = request.Request(f"{self.base_url}/api/tags", method="GET")
+        started = perf_counter()
+        use_timeout = self.timeout if timeout is None else timeout
+        try:
+            with request.urlopen(req, timeout=use_timeout) as resp:
+                raw = resp.read().decode("utf-8")
+                status = int(getattr(resp, "status", 200))
+        except error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RelayError(
+                f"Ollama request failed (/api/tags): HTTP {exc.code} {detail}",
+                http_status=exc.code,
+                raw_response=detail,
+                stage="probe-tags",
+                reason="http-error",
+            ) from exc
+        except error.URLError as exc:
+            reason = getattr(exc, "reason", None)
+            if isinstance(reason, TimeoutError):
+                raise RelayError(
+                    f"Ollama request timed out after {use_timeout:g}s",
+                    reason="timeout",
+                    stage="probe-tags",
+                ) from exc
+            raise RelayError(
+                f"Could not connect to Ollama at {self.base_url}. Is ollama running?",
+                reason="connect-error",
+                stage="probe-tags",
+            ) from exc
+        except TimeoutError as exc:
+            raise RelayError(
+                f"Ollama request timed out after {use_timeout:g}s",
+                reason="timeout",
+                stage="probe-tags",
+            ) from exc
+
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise RelayError("Ollama returned non-JSON output", stage="probe-tags") from exc
+        if not isinstance(data, dict):
+            raise RelayError("Ollama returned a non-object JSON payload", stage="probe-tags")
+        return data, int((perf_counter() - started) * 1000), status
+
     def chat(
         self,
         model: str,
         messages: list[dict[str, str]],
         seed: int | None = None,
         response_format: str | dict[str, Any] | None = None,
-    ) -> tuple[str, int]:
-        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
-        options: dict[str, Any] = {}
-        if seed is not None:
-            options["seed"] = seed
-        if options:
-            payload["options"] = options
-        if self.keep_alive is not None:
-            payload["keep_alive"] = self.keep_alive
-        if response_format is not None:
-            payload["format"] = response_format
-
+    ) -> tuple[str, int, int]:
         try:
-            data, elapsed_ms = self._post_json("/api/chat", payload)
-            content = data.get("message", {}).get("content")
-            if isinstance(content, str):
-                return content, elapsed_ms
+            return call_ollama_chat(
+                self,
+                model=model,
+                messages=messages,
+                seed=seed,
+                response_format=response_format,
+                timeout=self.timeout,
+                keep_alive=self.keep_alive,
+            )
         except RelayError as exc:
             if "HTTP 404" not in str(exc):
                 raise
@@ -74,13 +188,20 @@ class OllamaClient:
         if self.keep_alive is not None:
             gen_payload["keep_alive"] = self.keep_alive
 
-        data, elapsed_ms = self._post_json("/api/generate", gen_payload)
+        data, elapsed_ms, status = self.post_json("/api/generate", gen_payload)
         content = data.get("response")
         if not isinstance(content, str):
-            raise RelayError("Ollama returned an unexpected response shape")
-        return content, elapsed_ms
+            raise RelayError("Ollama returned an unexpected response shape", http_status=status)
+        return content, elapsed_ms, status
 
-    def _post_json(self, path: str, payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    def post_json(
+        self, path: str, payload: dict[str, Any], *, timeout: float | None = None
+    ) -> tuple[dict[str, Any], int, int]:
+        return self._post_json(path, payload, timeout=timeout)
+
+    def _post_json(
+        self, path: str, payload: dict[str, Any], *, timeout: float | None = None
+    ) -> tuple[dict[str, Any], int, int]:
         body = json.dumps(payload, sort_keys=True).encode("utf-8")
         req = request.Request(
             f"{self.base_url}{path}",
@@ -89,29 +210,104 @@ class OllamaClient:
             method="POST",
         )
         started = perf_counter()
+        use_timeout = self.timeout if timeout is None else timeout
         try:
-            with request.urlopen(req, timeout=self.timeout) as resp:
+            with request.urlopen(req, timeout=use_timeout) as resp:
                 raw = resp.read().decode("utf-8")
+                status = int(getattr(resp, "status", 200))
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise RelayError(f"Ollama request failed ({path}): HTTP {exc.code} {detail}") from exc
+            raise RelayError(
+                f"Ollama request failed ({path}): HTTP {exc.code} {detail}",
+                http_status=exc.code,
+                raw_response=detail,
+                reason="http-error",
+            ) from exc
         except error.URLError as exc:
             reason = getattr(exc, "reason", None)
             if isinstance(reason, TimeoutError):
-                raise RelayError(f"Ollama request timed out after {self.timeout:g}s") from exc
+                raise RelayError(
+                    f"Ollama request timed out after {use_timeout:g}s",
+                    reason="timeout",
+                ) from exc
             raise RelayError(
-                f"Could not connect to Ollama at {self.base_url}. Is ollama running?"
+                f"Could not connect to Ollama at {self.base_url}. Is ollama running?",
+                reason="connect-error",
             ) from exc
         except TimeoutError as exc:
-            raise RelayError(f"Ollama request timed out after {self.timeout:g}s") from exc
+            raise RelayError(
+                f"Ollama request timed out after {use_timeout:g}s",
+                reason="timeout",
+            ) from exc
 
         try:
             data = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise RelayError("Ollama returned non-JSON output") from exc
+            raise RelayError("Ollama returned non-JSON output", raw_response=raw) from exc
         if not isinstance(data, dict):
-            raise RelayError("Ollama returned a non-object JSON payload")
-        return data, int((perf_counter() - started) * 1000)
+            raise RelayError("Ollama returned a non-object JSON payload", raw_response=raw)
+        return data, int((perf_counter() - started) * 1000), status
+
+
+def run_probe(*, client: OllamaClient, models: list[str]) -> tuple[bool, list[dict[str, Any]]]:
+    results: list[dict[str, Any]] = []
+    ok = True
+    try:
+        _, elapsed_ms, status = client.get_tags(timeout=client.timeout)
+        results.append({"kind": "tags", "ok": status == 200, "http_status": status, "elapsed_ms": elapsed_ms})
+        if status != 200:
+            ok = False
+    except RelayError as exc:
+        results.append(
+            {
+                "kind": "tags",
+                "ok": False,
+                "http_status": exc.http_status,
+                "elapsed_ms": None,
+                "reason": str(exc),
+            }
+        )
+        return False, results
+
+    for model in models:
+        try:
+            raw, elapsed_ms, status = call_ollama_chat(
+                client,
+                model=model,
+                messages=build_ping_messages(),
+                seed=None,
+                response_format="json",
+                timeout=client.timeout,
+                keep_alive=client.keep_alive,
+            )
+            parse_structured_reply(raw)
+            results.append(
+                {
+                    "kind": "model",
+                    "model": model,
+                    "ok": True,
+                    "http_status": status,
+                    "elapsed_ms": elapsed_ms,
+                }
+            )
+        except RelayError as exc:
+            ok = False
+            results.append(
+                {
+                    "kind": "model",
+                    "model": model,
+                    "ok": False,
+                    "http_status": exc.http_status,
+                    "elapsed_ms": None,
+                    "reason": str(exc),
+                }
+            )
+    return ok, results
+
+
+def warm_models(*, client: OllamaClient, models: list[str]) -> list[dict[str, Any]]:
+    _, results = run_probe(client=client, models=models)
+    return [r for r in results if r.get("kind") == "model"]
 
 
 def strict_validate_with_retry(
@@ -121,7 +317,6 @@ def strict_validate_with_retry(
     lenient: bool = False,
     retry: Callable[[str], str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Validate a DSL message and optionally retry once using a correction callback."""
     try:
         return message, dsl_to_json_with_options(message, lenient=lenient)
     except DSLParseError as exc:
@@ -185,7 +380,6 @@ def decide_structured_recovery(
     strict: bool,
     fallback_enabled: bool,
 ) -> str:
-    """Pure fallback decision helper for structured relay stage failures."""
     if not schema_failed:
         return "schema-ok"
     if not fallback_enabled:
@@ -211,13 +405,20 @@ def build_transcript_record(
     elapsed_ms: int,
     timeout_s: float,
     keep_alive_s: float | None,
+    request_id: int,
+    stage: RequestMode,
+    http_status: int | None,
+    fallback_reason: str | None,
 ) -> dict[str, Any]:
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
+        "request_id": request_id,
         "side": side,
         "model": model,
         "mode": mode,
+        "stage": stage,
         "request_mode": request_mode,
+        "http_status": http_status,
         "raw": raw,
         "parsed": parsed,
         "dsl": dsl,
@@ -226,7 +427,52 @@ def build_transcript_record(
         "elapsed_ms": elapsed_ms,
         "timeout_s": timeout_s,
         "keep_alive_s": keep_alive_s,
+        "fallback_reason": fallback_reason,
     }
+
+
+def summarize_transcript(records: list[dict[str, Any]]) -> dict[str, Any]:
+    stage_groups: dict[str, list[int]] = {}
+    fallback_counts: dict[str, int] = {}
+    for record in records:
+        stage = str(record.get("stage", "unknown"))
+        elapsed = record.get("elapsed_ms")
+        if isinstance(elapsed, int):
+            stage_groups.setdefault(stage, []).append(elapsed)
+        reason = record.get("fallback_reason")
+        if reason:
+            fallback_counts[stage] = fallback_counts.get(stage, 0) + 1
+
+    stage_latency: dict[str, dict[str, float]] = {}
+    for stage, values in stage_groups.items():
+        if values:
+            stage_latency[stage] = {
+                "avg_ms": round(sum(values) / len(values), 2),
+                "median_ms": float(statistics.median(values)),
+            }
+
+    return {
+        "total_turns": len(records),
+        "retries": sum(int(record.get("retry", 0)) for record in records),
+        "fallbacks_by_stage": dict(sorted(fallback_counts.items())),
+        "elapsed_ms_by_stage": dict(sorted(stage_latency.items())),
+    }
+
+
+def print_relay_summary(summary: dict[str, Any], *, log_path: str | None) -> None:
+    print(
+        "relay summary: "
+        f"turns={summary['total_turns']} retries={summary['retries']} "
+        f"fallbacks={json.dumps(summary['fallbacks_by_stage'], sort_keys=True)}",
+        file=sys.stderr,
+    )
+    for stage, values in summary["elapsed_ms_by_stage"].items():
+        print(
+            f"  {stage}: avg={values['avg_ms']}ms median={values['median_ms']}ms",
+            file=sys.stderr,
+        )
+    if log_path:
+        print(f"  transcript: {log_path}", file=sys.stderr)
 
 
 def append_transcript(path: str | None, record: dict[str, Any]) -> None:
@@ -256,10 +502,13 @@ def run_relay(
     raw_json: bool = False,
     log_path: str | None = None,
     lenient: bool = False,
+    warm: bool = False,
 ) -> list[tuple[str, str, dict[str, Any], str | None]]:
-    """Run A<->B relay and return transcript entries."""
     if turns < 1:
         raise RelayError("turns must be >= 1")
+
+    if warm:
+        warm_models(client=client, models=[a_model, b_model])
 
     if not structured:
         contract = build_contract_prompt("dsl")
@@ -269,6 +518,8 @@ def run_relay(
             system_b = contract
 
     transcript: list[tuple[str, str, dict[str, Any], str | None]] = []
+    records: list[dict[str, Any]] = []
+    request_id = 0
     histories = {"A": _new_history(system_a), "B": _new_history(system_b)}
 
     current = start or "ping tool service=relay"
@@ -276,8 +527,19 @@ def run_relay(
 
     for _ in range(turns):
         for speaker, model, other in (("A", a_model, "B"), ("B", b_model, "A")):
+            request_id += 1
+            fallback_reason = None
             if structured:
-                response_raw, response, response_json, elapsed_ms, request_mode = _structured_model_step(
+                (
+                    response_raw,
+                    response,
+                    response_json,
+                    elapsed_ms,
+                    request_mode,
+                    http_status,
+                    retry_value,
+                    fallback_reason,
+                ) = _structured_model_step(
                     client=client,
                     model=model,
                     history=histories[speaker],
@@ -292,7 +554,7 @@ def run_relay(
                 mode = "structured"
                 next_incoming = json.dumps(response_json, sort_keys=True)
             else:
-                response_raw, response, response_json, elapsed_ms = _dsl_model_step(
+                response_raw, response, response_json, elapsed_ms, http_status, retry_value = _dsl_model_step(
                     client=client,
                     model=model,
                     history=histories[speaker],
@@ -301,8 +563,6 @@ def run_relay(
                     seed=seed,
                     strict=strict,
                     lenient=lenient,
-                    side=speaker,
-                    log_path=log_path,
                 )
                 mode = "dsl"
                 request_mode = "dsl"
@@ -312,28 +572,31 @@ def run_relay(
             _append_exchange(histories[other], current, next_incoming)
             transcript.append((speaker, response, response_json, response_raw if raw_json else None))
 
-            retry_value = 1 if (mode == "dsl" and response_raw != response) else 0
-            append_transcript(
-                log_path,
-                build_transcript_record(
-                    side=speaker,
-                    model=model,
-                    mode=mode,
-                    request_mode=request_mode,
-                    raw=response_raw,
-                    parsed=response_json,
-                    dsl=response,
-                    error=None,
-                    retry=retry_value,
-                    elapsed_ms=elapsed_ms,
-                    timeout_s=client.timeout,
-                    keep_alive_s=client.keep_alive,
-                ),
+            record = build_transcript_record(
+                request_id=request_id,
+                side=speaker,
+                model=model,
+                mode=mode,
+                stage=request_mode,
+                request_mode=request_mode,
+                http_status=http_status,
+                raw=response_raw,
+                parsed=response_json,
+                dsl=response,
+                error=None,
+                retry=retry_value,
+                elapsed_ms=elapsed_ms,
+                timeout_s=client.timeout,
+                keep_alive_s=client.keep_alive,
+                fallback_reason=fallback_reason,
             )
+            records.append(record)
+            append_transcript(log_path, record)
 
             current = next_incoming if structured else response
             current_json = response_json
 
+    print_relay_summary(summarize_transcript(records), log_path=log_path)
     return transcript
 
 
@@ -349,7 +612,7 @@ def _structured_model_step(
     fallback_enabled: bool,
     lenient: bool,
     add_contract: bool,
-) -> tuple[str, str, dict[str, Any], int, RequestMode]:
+) -> tuple[str, str, dict[str, Any], int, RequestMode, int | None, int, str | None]:
     contract = build_contract_prompt("structured") if add_contract else ""
     prompt = (
         "Reply with exactly one canonical ChoomLang JSON object and no extra text.\n"
@@ -361,65 +624,87 @@ def _structured_model_step(
     working_history = [*history, {"role": "user", "content": prompt}]
 
     if use_schema:
-        schema_format = canonical_json_schema()
         try:
-            raw_schema, elapsed_schema = _chat_once(
-                client, model, working_history, seed=seed, response_format=schema_format
+            raw_schema, elapsed_schema, status_schema = _chat_once(
+                client, model, working_history, seed=seed, response_format=canonical_json_schema()
             )
             payload, dsl = parse_structured_reply(raw_schema)
-            return raw_schema, dsl, payload, elapsed_schema, "structured-schema"
+            return raw_schema, dsl, payload, elapsed_schema, "structured-schema", status_schema, 0, None
         except RelayError as schema_err:
-            if not fallback_enabled:
-                raise RelayError(f"structured schema stage failed: {schema_err}") from schema_err
-
+            reason = f"schema-failed:{schema_err}"
+            decision = decide_structured_recovery(
+                schema_failed=True,
+                json_failed=False,
+                strict=strict,
+                fallback_enabled=fallback_enabled,
+            )
+            if decision == "fail-no-fallback":
+                raise RelayError(
+                    f"structured schema stage failed: {schema_err}",
+                    http_status=schema_err.http_status,
+                    raw_response=schema_err.raw_response,
+                    stage="structured-schema",
+                ) from schema_err
             print(
                 f"warning: structured schema stage failed ({schema_err}); retrying with format=json",
                 file=sys.stderr,
             )
-
             try:
-                raw_json, elapsed_json = _chat_once(
+                raw_json, elapsed_json, status_json = _chat_once(
                     client, model, working_history, seed=seed, response_format="json"
                 )
                 payload, dsl = parse_structured_reply(raw_json)
-                return raw_json, dsl, payload, elapsed_json, "structured-json"
-            except RelayError as json_err:
-                decision = decide_structured_recovery(
-                    schema_failed=True,
-                    json_failed=True,
-                    strict=strict,
-                    fallback_enabled=fallback_enabled,
+                return (
+                    raw_json,
+                    dsl,
+                    payload,
+                    elapsed_json,
+                    "structured-json",
+                    status_json,
+                    1,
+                    reason,
                 )
-                if decision == "fail-strict":
+            except RelayError as json_err:
+                if strict:
                     raise RelayError(
-                        "structured relay failed at stage structured-json after schema retry; "
-                        f"last raw response: {raw_json if 'raw_json' in locals() else '<none>'}"
+                        "structured relay failed at stage structured-json; "
+                        f"reason={json_err}; last raw response={json_err.raw_response or '<none>'}",
+                        http_status=json_err.http_status,
+                        raw_response=json_err.raw_response,
+                        stage="structured-json",
                     ) from json_err
-                if decision == "fallback-dsl":
-                    print(
-                        "warning: structured json stage failed; falling back to DSL guard mode",
-                        file=sys.stderr,
-                    )
-                    raw_dsl, dsl_line, payload, elapsed_dsl = _dsl_model_step(
-                        client=client,
-                        model=model,
-                        history=history,
-                        incoming_dsl=json_to_dsl(incoming_json),
-                        incoming_json=incoming_json,
-                        seed=seed,
-                        strict=False,
-                        lenient=lenient,
-                        side="?",
-                        log_path=None,
-                    )
-                    return raw_dsl, dsl_line, payload, elapsed_dsl, "fallback-dsl"
-                raise RelayError(
-                    "structured relay failed at stage structured-json; automatic fallback disabled"
-                ) from json_err
+                if not fallback_enabled:
+                    raise RelayError(
+                        "structured relay failed at stage structured-json; automatic fallback disabled",
+                        http_status=json_err.http_status,
+                        raw_response=json_err.raw_response,
+                        stage="structured-json",
+                    ) from json_err
+                print("warning: structured json stage failed; falling back to DSL guard mode", file=sys.stderr)
+                raw_dsl, dsl_line, payload, elapsed_dsl, http_status, retry_count = _dsl_model_step(
+                    client=client,
+                    model=model,
+                    history=history,
+                    incoming_dsl=json_to_dsl(incoming_json),
+                    incoming_json=incoming_json,
+                    seed=seed,
+                    strict=False,
+                    lenient=lenient,
+                )
+                return (
+                    raw_dsl,
+                    dsl_line,
+                    payload,
+                    elapsed_dsl,
+                    "fallback-dsl",
+                    http_status,
+                    retry_count,
+                    f"{reason};json-failed:{json_err}",
+                )
 
-    raw, elapsed = _chat_once(client, model, working_history, seed=seed, response_format="json")
+    raw, elapsed, status = _chat_once(client, model, working_history, seed=seed, response_format="json")
     payload, dsl = parse_structured_reply(raw)
-    return raw, dsl, payload, elapsed, "structured-json"
+    return raw, dsl, payload, elapsed, "structured-json", status, 0, None
 
 
 def _dsl_model_step(
@@ -432,9 +717,7 @@ def _dsl_model_step(
     seed: int | None,
     strict: bool,
     lenient: bool,
-    side: str,
-    log_path: str | None,
-) -> tuple[str, str, dict[str, Any], int]:
+) -> tuple[str, str, dict[str, Any], int, int | None, int]:
     prompt = (
         "Reply with exactly one ChoomLang DSL line.\n"
         f"Incoming DSL: {incoming_dsl}\n"
@@ -444,28 +727,11 @@ def _dsl_model_step(
         raise RelayError("incoming message too large to relay")
 
     working_history = [*history, {"role": "user", "content": prompt}]
-    raw, elapsed_ms = _chat_once(client, model, working_history, seed=seed, response_format=None)
+    raw, elapsed_ms, http_status = _chat_once(client, model, working_history, seed=seed, response_format=None)
 
     try:
         payload = dsl_to_json_with_options(raw, lenient=lenient)
     except DSLParseError as exc:
-        append_transcript(
-            log_path,
-            build_transcript_record(
-                side=side,
-                model=model,
-                mode="dsl",
-                request_mode="dsl",
-                raw=raw,
-                parsed=None,
-                dsl=None,
-                error=str(exc),
-                retry=0,
-                elapsed_ms=elapsed_ms,
-                timeout_s=client.timeout,
-                keep_alive_s=client.keep_alive,
-            ),
-        )
         if not strict:
             raise
 
@@ -475,35 +741,19 @@ def _dsl_model_step(
             {"role": "assistant", "content": raw},
             {"role": "user", "content": correction_prompt},
         ]
-        corrected, retry_elapsed_ms = _chat_once(
+        corrected, retry_elapsed_ms, retry_status = _chat_once(
             client, model, correction_history, seed=seed, response_format=None
         )
         try:
             payload = dsl_to_json_with_options(corrected, lenient=lenient)
-            return corrected, corrected, payload, elapsed_ms + retry_elapsed_ms
+            return corrected, corrected, payload, elapsed_ms + retry_elapsed_ms, retry_status, 1
         except DSLParseError as retry_exc:
-            append_transcript(
-                log_path,
-                build_transcript_record(
-                    side=side,
-                    model=model,
-                    mode="dsl",
-                    request_mode="dsl",
-                    raw=corrected,
-                    parsed=None,
-                    dsl=None,
-                    error=str(retry_exc),
-                    retry=1,
-                    elapsed_ms=retry_elapsed_ms,
-                    timeout_s=client.timeout,
-                    keep_alive_s=client.keep_alive,
-                ),
-            )
             raise RelayError(
-                f"model failed strict ChoomLang validation after retry: {retry_exc}"
+                f"model failed strict ChoomLang validation after retry: {retry_exc}",
+                stage="dsl",
             ) from retry_exc
 
-    return raw, raw, payload, elapsed_ms
+    return raw, raw, payload, elapsed_ms, http_status, 0
 
 
 def _chat_once(
@@ -513,9 +763,9 @@ def _chat_once(
     *,
     seed: int | None,
     response_format: str | dict[str, Any] | None,
-) -> tuple[str, int]:
-    raw, elapsed_ms = client.chat(model, history, seed=seed, response_format=response_format)
-    return _clip_model_output(raw), elapsed_ms
+) -> tuple[str, int, int | None]:
+    raw, elapsed_ms, status = client.chat(model, history, seed=seed, response_format=response_format)
+    return _clip_model_output(raw), elapsed_ms, status
 
 
 def _append_exchange(history: list[dict[str, str]], incoming: str, outgoing: str) -> None:

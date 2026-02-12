@@ -1,4 +1,4 @@
-# ChoomLang v0.5
+# ChoomLang v0.6
 
 ChoomLang is a deterministic AI-to-AI command language with two layers:
 
@@ -13,7 +13,7 @@ This repo implements:
 - Validate mode (parse-only lint for DSL lines)
 - Ollama-backed relay mode (`choom relay`)
 - CLI (`choom`)
-- v0.5 resilient structured relay + protocol contracts + timeout/keep-alive controls
+- v0.6 Windows-oriented reliability: probe, warm-up, hardened structured fallback, and relay summaries
 - Tests + CI
 
 ## Install
@@ -161,9 +161,25 @@ Relay reliability controls:
 - `--no-fallback` disables structured auto-fallback.
 
 Structured fallback behavior:
-1. `--structured --schema` tries schema format first.
-2. On timeout/HTTP/non-JSON or invalid structured payload, relay warns and retries once with `format="json"`.
-3. If JSON retry fails: `--strict` exits with a stage-specific error (and last raw response), otherwise relay falls back to guarded DSL mode and logs that fallback.
+1. `--structured --schema` tries schema format first (unless `--no-schema`).
+2. On timeout/HTTP/non-JSON or invalid structured payload, relay logs a fallback reason and retries once with `format="json"`.
+3. If JSON retry fails: `--strict` exits with stage + reason + raw response; otherwise relay may fall back to DSL unless `--no-fallback` is set.
+
+`choom relay --probe` quick check (connectivity + model readiness):
+
+```bash
+choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
+```
+
+Recommended Windows flow:
+1. `choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300`
+2. `choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300`
+
+Copy/paste structured demo:
+
+```bash
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
+```
 
 
 Lenient mode note: `validate`, `fmt`, and `relay` support `--lenient` to ignore only a final standalone `.`, `,`, or `;` token.
