@@ -9,9 +9,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .dsl import DSLParseError, parse_dsl, serialize_dsl
+from .dsl import DSLParseError, parse_dsl
+from .adapters import run_adapter
+from .errors import RunError
 from .protocol import iter_script_lines
-from .run import RunError, run_toolcall
 
 _INTERPOLATION_RE = re.compile(r"@([A-Za-z_][A-Za-z0-9_-]*)")
 
@@ -264,8 +265,18 @@ def _interpolate_string(value: str, state: RunnerState) -> str:
 
 def _execute_payload(payload: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
     if payload.get("op") != "toolcall" or payload.get("target") != "tool":
-        raise RunError("choom run only supports canonical 'toolcall tool' commands")
-    return run_toolcall(serialize_dsl(payload), out_dir=str(artifacts_dir), dry_run=dry_run)
+        raise RunError("runner requires canonical op='toolcall' and target='tool'")
+
+    params = payload.get("params")
+    if not isinstance(params, dict):
+        raise RunError("runner requires params object for toolcall")
+
+    tool_name = params.get("name")
+    if not isinstance(tool_name, str) or not tool_name:
+        raise RunError("runner requires params.name for toolcall adapter selection")
+
+    adapter_params = {key: value for key, value in params.items() if key != "name"}
+    return run_adapter(tool_name, adapter_params, artifacts_dir, dry_run)
 
 
 def _store_output_if_requested(state: RunnerState, payload: dict[str, Any], output: Any) -> str | None:

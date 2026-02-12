@@ -101,22 +101,29 @@ choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro
 
 ## Run toolcall (safe adapters)
 
-`choom run` executes only canonical `toolcall tool` commands.
+`choom run` executes `.choom` scripts and only accepts canonical `toolcall tool` payloads.
+The runner requires `params.name` and routes remaining params to an adapter.
 
-Built-ins in v0.8:
+Built-in adapters:
 
-- `name=echo`: prints params
-- `name=write_file`: writes `text` to `path` under `./out` (or `--out-dir`)
+- `name=echo`: returns deterministic JSON of params (string)
+- `name=write_file`: writes `text` to `artifacts/<path>` and returns the relative path string
+- `name=read_file`: reads `artifacts/<path>` and returns file content string
+- `name=mkdir`: creates `artifacts/<path>` and returns the relative path string
+- `name=list_dir`: lists `artifacts/<path>` and returns a deterministic JSON string array (sorted)
 
-Examples:
+Path safety for filesystem adapters is fail-closed:
 
-```bash
-choom run "toolcall tool name=echo id=123 role=worker"
-choom run "toolcall tool name=write_file path=notes/todo.txt text=hello"
-choom run "toolcall tool name=write_file path=notes/todo.txt text=hello" --dry-run
-```
+- absolute paths are rejected
+- `..` traversal is rejected
+- paths resolve only under `<workdir>/artifacts`
 
-Path traversal is blocked for `write_file`. Network/shell adapters are intentionally not included in v0.8.
+Primary output mapping used for state capture:
+
+- text ops (`echo`) -> returned string
+- `write_file` -> relative path string
+- `read_file` -> file content string
+- `list_dir` -> sorted JSON string list
 
 ## Lint (warnings-only)
 

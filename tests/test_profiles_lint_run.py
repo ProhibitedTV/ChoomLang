@@ -9,7 +9,8 @@ from choomlang.profiles import (
     search_profiles,
     validate_profile_payload,
 )
-from choomlang.run import run_toolcall, RunError
+from choomlang.errors import RunError
+from choomlang.run import run_toolcall
 
 
 def test_version_is_0_9_0():
@@ -175,7 +176,7 @@ def test_lint_strict_unknown_registry_warnings(capsys):
 
 def test_run_toolcall_dry_run_and_write_file(tmp_path):
     msg = run_toolcall("toolcall tool name=echo trace=test", dry_run=True)
-    assert "dry-run" in msg
+    assert msg == '{"trace": "test"}'
 
     out_dir = tmp_path / "out"
     msg = run_toolcall(
@@ -183,7 +184,7 @@ def test_run_toolcall_dry_run_and_write_file(tmp_path):
         out_dir=str(out_dir),
         dry_run=False,
     )
-    assert "executed" in msg
+    assert msg == "notes/a.txt"
     assert (out_dir / "notes" / "a.txt").read_text(encoding="utf-8") == "hello"
 
 
@@ -196,7 +197,7 @@ def test_run_blocks_path_traversal(tmp_path):
             dry_run=False,
         )
     except RunError as exc:
-        assert "unsafe path" in str(exc)
+        assert "path traversal" in str(exc)
     else:
         raise AssertionError("expected path traversal RunError")
 
@@ -209,4 +210,42 @@ def test_cli_run_dry_run(capsys, tmp_path):
     out = capsys.readouterr().out
     assert code == 0
     assert "line 1:" in out
-    assert "dry-run" in out
+    assert '{"id": 123}' in out
+
+
+def test_run_toolcall_read_mkdir_and_list_dir(tmp_path):
+    out_dir = tmp_path / "out"
+    created = run_toolcall("toolcall tool name=mkdir path=docs", out_dir=str(out_dir), dry_run=False)
+    assert created == "docs"
+
+    run_toolcall(
+        "toolcall tool name=write_file path=docs/b.txt text=two",
+        out_dir=str(out_dir),
+        dry_run=False,
+    )
+    run_toolcall(
+        "toolcall tool name=write_file path=docs/a.txt text=one",
+        out_dir=str(out_dir),
+        dry_run=False,
+    )
+
+    listing = run_toolcall("toolcall tool name=list_dir path=docs", out_dir=str(out_dir), dry_run=False)
+    assert listing == '["a.txt","b.txt"]'
+
+    content = run_toolcall("toolcall tool name=read_file path=docs/a.txt", out_dir=str(out_dir), dry_run=False)
+    assert content == "one"
+
+
+def test_run_blocks_absolute_paths(tmp_path):
+    out_dir = tmp_path / "out"
+    with_absolute = "/tmp/escape.txt"
+    try:
+        run_toolcall(
+            f"toolcall tool name=write_file path={with_absolute} text=hello",
+            out_dir=str(out_dir),
+            dry_run=False,
+        )
+    except RunError as exc:
+        assert "absolute paths" in str(exc)
+    else:
+        raise AssertionError("expected absolute path RunError")
