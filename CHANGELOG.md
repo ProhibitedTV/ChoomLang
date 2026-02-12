@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2
+
+- Added an `a1111_txt2img` runner adapter for Stable Diffusion WebUI (A1111) image generation.
+- Added runner URL configuration for A1111 via CLI `--a1111-url` and environment variable `CHOOM_A1111_URL`.
+- Added deterministic A1111 artifact naming (`a1111_txt2img_<step>_<index>_seed<seed>.png`) under the run artifacts directory.
+- Added compact transcript output behavior for A1111 image outputs by summarizing generated artifact filenames in transcript records.
+
 ## 0.10.1
 
 - Added `script` as a canonical target for payload validation and schema generation.

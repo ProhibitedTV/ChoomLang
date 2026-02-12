@@ -160,6 +160,29 @@ Primary output mapping used for state capture:
 - `read_file` -> file content string
 - `list_dir` -> sorted JSON string list
 
+## A1111 adapter (Stable Diffusion WebUI)
+
+Use the built-in `a1111_txt2img` tool adapter to generate images through AUTOMATIC1111.
+
+Prerequisites:
+
+- A1111 is running locally or remotely.
+- A1111 API mode is enabled (for example, launch with `--api`).
+
+Runner URL configuration:
+
+- `choom run ... --a1111-url http://127.0.0.1:7860`
+- `CHOOM_A1111_URL=http://127.0.0.1:7860` (used when `--a1111-url` is not provided)
+
+Example workflow lines:
+
+```text
+toolcall tool name=a1111_txt2img prompt="cinematic city street at night" width=1024 height=1024 steps=28 cfg=7 sampler="Euler a" n=2 seed=42 id=imgs
+toolcall tool name=a1111_txt2img prompt="product photo on white background" negative="blurry, lowres" width=768 height=768 steps=24 n=1 id=product_img
+```
+
+All generated images from `a1111_txt2img` are always saved to `<workdir>/artifacts` using deterministic filenames. ChoomLang never writes images to A1111 default output folders.
+
 ## Lint (warnings-only)
 
 `choom lint` is non-blocking by design and does not reject unknown params.
