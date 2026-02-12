@@ -158,35 +158,13 @@ Lenient mode note: `validate`, `fmt`, and `relay` support `--lenient` to ignore 
 <op> <target>[count] key=value key=value ...
 ```
 
-- `op`: required operation string (aliases accepted)
-- `target`: required (`img|txt|aud|vid|vec|tool` by default; extensible)
-- `count`: optional integer, defaults to `1`
-- key/value params: optional and space-delimited
-- values: bareword, quoted string, int, float, bool
+- `op` + `target`: required operation and modality/tool target; aliases are accepted and normalized to canonical ops in JSON.
+- `[count]` + `key=value ...`: optional repeat count (default `1`) and optional space-delimited params with bare or quoted values.
 
 ## Examples
 
-1. `jack img[3] style=cyberpunk neon=++ res=1920x1080 seed=42`
-2. `gen img style=studio res=1024x1024`
-3. `scan img[2] model="vision v2" threshold=0.82`
-4. `classify txt labels="urgent,normal" confidence=true`
-5. `ghost txt length=short tone=noir`
-6. `summarize txt[4] max_tokens=120`
-7. `forge vec[5] objective="route planning" budget=3.5`
-8. `plan tool name=scheduler dry_run=false`
-9. `ping tool service=renderer timeout=1.5`
-10. `healthcheck tool region=nightcity`
-11. `call tool name="weather.api" city="New Tokyo"`
-12. `relay txt channel=ops priority=2`
-
-Canonical op normalization examples:
-
-- `jack` -> `gen`
-- `scan` -> `classify`
-- `ghost` -> `summarize`
-- `forge` -> `plan`
-- `ping` -> `healthcheck`
-- `call` -> `toolcall`
-- `relay` -> `forward`
+1. Generation: `gen img style=studio res=1024x1024`
+2. Classification alias: `scan img[2] model="vision v2" threshold=0.82` (`scan` normalizes to `classify`)
+3. Tool-forward case: `relay txt channel=ops priority=2` (`relay` normalizes to `forward`)
 
 See [`spec.md`](spec.md) and [`grammar.md`](grammar.md) for full details.
