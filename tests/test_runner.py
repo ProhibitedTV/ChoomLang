@@ -191,6 +191,46 @@ def test_run_script_requires_params_name(tmp_path):
         run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
 
 
+
+
+def test_run_script_passes_step_and_a1111_url_context_to_adapters(tmp_path, monkeypatch):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        "toolcall tool name=echo id=first\n"
+        "toolcall tool name=echo id=second\n",
+        encoding="utf-8",
+    )
+
+    calls: list[dict[str, object]] = []
+
+    def fake_run_adapter(name, params, artifacts_dir, dry_run, **kwargs):
+        _ = artifacts_dir
+        _ = dry_run
+        calls.append({"name": name, "params": params, "context": kwargs.get("context")})
+        return "ok"
+
+    monkeypatch.setattr("choomlang.runner.run_adapter", fake_run_adapter)
+
+    workdir = tmp_path / "run"
+    outputs = run_script(
+        str(script),
+        config=RunnerConfig(workdir=str(workdir), dry_run=False, a1111_url="http://a1111:9000"),
+    )
+
+    assert outputs == ["line 1: ok", "line 2: ok"]
+    assert calls == [
+        {
+            "name": "echo",
+            "params": {"id": "first"},
+            "context": {"step": 1, "a1111_url": "http://a1111:9000"},
+        },
+        {
+            "name": "echo",
+            "params": {"id": "second"},
+            "context": {"step": 2, "a1111_url": "http://a1111:9000"},
+        },
+    ]
+
 def test_run_script_ollama_chat_adapter_with_fake_client(tmp_path):
     script = tmp_path / "demo.choom"
     script.write_text(

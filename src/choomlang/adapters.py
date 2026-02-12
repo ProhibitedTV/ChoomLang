@@ -11,7 +11,7 @@ from urllib import request
 from .errors import RunError
 from .llm import LLMClient, OllamaLLMClient
 
-Adapter = Callable[[dict[str, Any], Path, bool, float | None, float | None, LLMClient], str]
+Adapter = Callable[[dict[str, Any], Path, bool, float | None, float | None, LLMClient, dict[str, Any] | None], str]
 
 
 def _validate_relative_artifact_path(raw_path: str) -> PurePosixPath:
@@ -41,9 +41,11 @@ def _adapter_echo(
     timeout: float | None,
     keep_alive: float | None,
     llm_client: LLMClient,
+    context: dict[str, Any] | None = None,
 ) -> str:
     _ = artifacts_dir
     _ = dry_run
+    _ = context
     _ = timeout
     _ = keep_alive
     _ = llm_client
@@ -57,10 +59,12 @@ def _adapter_write_file(
     timeout: float | None,
     keep_alive: float | None,
     llm_client: LLMClient,
+    context: dict[str, Any] | None = None,
 ) -> str:
     _ = timeout
     _ = keep_alive
     _ = llm_client
+    _ = context
     raw_path = str(params.get("path", ""))
     if not raw_path:
         raise RunError("write_file requires param 'path'")
@@ -80,11 +84,13 @@ def _adapter_read_file(
     timeout: float | None,
     keep_alive: float | None,
     llm_client: LLMClient,
+    context: dict[str, Any] | None = None,
 ) -> str:
     _ = dry_run
     _ = timeout
     _ = keep_alive
     _ = llm_client
+    _ = context
     raw_path = str(params.get("path", ""))
     if not raw_path:
         raise RunError("read_file requires param 'path'")
@@ -101,10 +107,12 @@ def _adapter_mkdir(
     timeout: float | None,
     keep_alive: float | None,
     llm_client: LLMClient,
+    context: dict[str, Any] | None = None,
 ) -> str:
     _ = timeout
     _ = keep_alive
     _ = llm_client
+    _ = context
     raw_path = str(params.get("path", ""))
     if not raw_path:
         raise RunError("mkdir requires param 'path'")
@@ -121,11 +129,13 @@ def _adapter_list_dir(
     timeout: float | None,
     keep_alive: float | None,
     llm_client: LLMClient,
+    context: dict[str, Any] | None = None,
 ) -> str:
     _ = dry_run
     _ = timeout
     _ = keep_alive
     _ = llm_client
+    _ = context
     raw_path = str(params.get("path", "."))
     destination, _ = resolve_artifact_path(artifacts_dir, raw_path)
     if not destination.exists() or not destination.is_dir():
@@ -141,9 +151,11 @@ def _adapter_ollama_chat(
     timeout: float | None,
     keep_alive: float | None,
     llm_client: LLMClient,
+    context: dict[str, Any] | None = None,
 ) -> str:
     _ = artifacts_dir
     _ = dry_run
+    _ = context
     model = params.get("model")
     if not isinstance(model, str) or not model:
         raise RunError("ollama_chat requires param 'model'")
@@ -200,6 +212,7 @@ def _adapter_a1111_txt2img(
     timeout: float | None,
     keep_alive: float | None,
     llm_client: LLMClient,
+    context: dict[str, Any] | None = None,
 ) -> str:
     _ = keep_alive
     _ = llm_client
@@ -207,11 +220,15 @@ def _adapter_a1111_txt2img(
     base_url: str | None = None
     if isinstance(params.get("base_url"), str) and params["base_url"]:
         base_url = params["base_url"]
-    context = params.get("context")
     if base_url is None and isinstance(context, dict):
-        context_base_url = context.get("base_url")
+        context_base_url = context.get("a1111_url") or context.get("base_url")
         if isinstance(context_base_url, str) and context_base_url:
             base_url = context_base_url
+    legacy_context = params.get("context")
+    if base_url is None and isinstance(legacy_context, dict):
+        legacy_base_url = legacy_context.get("base_url")
+        if isinstance(legacy_base_url, str) and legacy_base_url:
+            base_url = legacy_base_url
     if base_url is None:
         base_url = "http://127.0.0.1:7860"
 
@@ -262,6 +279,11 @@ def _adapter_a1111_txt2img(
 
     seed_suffix = "x" if seed_value in (None, -1) else str(seed_value)
     step_value = _as_int(params, "step")
+    if step_value is None and isinstance(context, dict):
+        try:
+            step_value = int(context.get("step")) if context.get("step") is not None else None
+        except (TypeError, ValueError) as exc:
+            raise RunError("a1111_txt2img context step must be an integer") from exc
     if step_value is None:
         step_value = 1
 
@@ -301,10 +323,11 @@ def run_adapter(
     timeout: float | None = None,
     keep_alive: float | None = None,
     llm_client: LLMClient | None = None,
+    context: dict[str, Any] | None = None,
 ) -> str:
     adapter = BUILTIN_ADAPTERS.get(name)
     if adapter is None:
         known = ", ".join(sorted(BUILTIN_ADAPTERS))
         raise RunError(f"unknown tool adapter '{name}'. known adapters: {known}")
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    return adapter(params, artifacts_dir, dry_run, timeout, keep_alive, llm_client or OllamaLLMClient())
+    return adapter(params, artifacts_dir, dry_run, timeout, keep_alive, llm_client or OllamaLLMClient(), context)

@@ -28,6 +28,7 @@ class RunnerConfig:
     max_steps: int | None = None
     resume: int | bool | None = None
     llm_client: LLMClient | None = None
+    a1111_url: str | None = None
 
 
 @dataclass
@@ -103,6 +104,7 @@ def run_script(
     keep_alive: float | None = None,
     config: RunnerConfig | None = None,
     llm_client: LLMClient | None = None,
+    a1111_url: str | None = None,
 ) -> list[str]:
     """Execute a .choom script line-by-line with persistent state + transcript."""
     cfg = config or RunnerConfig(
@@ -113,6 +115,7 @@ def run_script(
         max_steps=max_steps,
         resume=resume,
         llm_client=llm_client,
+        a1111_url=a1111_url,
     )
     _ = cfg.timeout
     _ = cfg.keep_alive
@@ -175,6 +178,8 @@ def run_script(
                     timeout=cfg.timeout,
                     keep_alive=cfg.keep_alive,
                     llm_client=cfg.llm_client,
+                    step_index=step_index,
+                    a1111_url=cfg.a1111_url,
                 )
                 stored_id = _store_output_if_requested(state, payload, output)
                 state.save_atomic(state_path)
@@ -302,6 +307,8 @@ def _execute_payload(
     timeout: float | None = None,
     keep_alive: float | None = None,
     llm_client: LLMClient | None = None,
+    step_index: int | None = None,
+    a1111_url: str | None = None,
 ) -> str:
     if payload.get("op") == "gen" and payload.get("target") == "script":
         return _handle_gen_script_payload(payload, artifacts_dir, dry_run)
@@ -318,6 +325,7 @@ def _execute_payload(
         raise RunError("runner requires params.name for toolcall adapter selection")
 
     adapter_params = {key: value for key, value in params.items() if key != "name"}
+    context = {"step": step_index, "a1111_url": a1111_url}
     return run_adapter(
         tool_name,
         adapter_params,
@@ -326,6 +334,7 @@ def _execute_payload(
         timeout=timeout,
         keep_alive=keep_alive,
         llm_client=llm_client,
+        context=context,
     )
 
 

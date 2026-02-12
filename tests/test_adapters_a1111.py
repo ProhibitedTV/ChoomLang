@@ -116,6 +116,28 @@ def test_a1111_txt2img_uses_context_base_url_and_seedx_when_seed_missing(tmp_pat
     assert (artifacts_dir / "a1111_txt2img_0002_01_seedx.png").read_bytes() == b"img"
 
 
+
+
+def test_a1111_txt2img_uses_invocation_context_for_step_and_url(tmp_path, monkeypatch):
+    def fake_urlopen(req, timeout=None):
+        _ = timeout
+        assert req.full_url == "http://context:7862/sdapi/v1/txt2img"
+        return _FakeResponse({"images": [base64.b64encode(b"img").decode("ascii")]})
+
+    monkeypatch.setattr("choomlang.adapters.request.urlopen", fake_urlopen)
+
+    artifacts_dir = tmp_path / "artifacts"
+    out = run_adapter(
+        "a1111_txt2img",
+        {"prompt": "cat"},
+        artifacts_dir,
+        False,
+        context={"step": 9, "a1111_url": "http://context:7862"},
+    )
+
+    assert json.loads(out) == ["a1111_txt2img_0009_01_seedx.png"]
+    assert (artifacts_dir / "a1111_txt2img_0009_01_seedx.png").read_bytes() == b"img"
+
 def test_a1111_txt2img_rejects_invalid_batch_size(tmp_path):
     with pytest.raises(RunError, match="param 'n' must be an integer >= 1"):
         run_adapter("a1111_txt2img", {"n": 0}, tmp_path / "artifacts", False)

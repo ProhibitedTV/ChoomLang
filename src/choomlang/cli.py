@@ -90,6 +90,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument("--dry-run", action="store_true", help="Plan script execution without side effects")
     p_run.add_argument("--timeout", type=float, help="Reserved runtime timeout in seconds")
     p_run.add_argument("--keep-alive", dest="keep_alive", type=float, help="Reserved runtime keep-alive in seconds")
+    p_run.add_argument(
+        "--a1111-url",
+        help="Base URL for A1111 adapters (default: CHOOM_A1111_URL or http://127.0.0.1:7860)",
+    )
 
     p_script = sub.add_parser("script", help="Process multi-line ChoomLang scripts")
     p_script.add_argument("path", help="Script path or '-' for stdin")
@@ -336,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
         if args.command == "run":
+            a1111_url = args.a1111_url or os.environ.get("CHOOM_A1111_URL") or "http://127.0.0.1:7860"
             results = run_script(
                 args.script,
                 workdir=args.workdir,
@@ -344,6 +349,7 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 timeout=args.timeout,
                 keep_alive=args.keep_alive,
+                a1111_url=a1111_url,
             )
             for line in results:
                 print(line)
