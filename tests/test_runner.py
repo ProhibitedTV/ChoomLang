@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from choomlang.run import RunError
+from choomlang.errors import RunError
 from choomlang.runner import RunnerConfig, run_script
 
 
@@ -16,7 +16,7 @@ def test_run_script_creates_workdir_state_and_transcript(tmp_path):
     assert len(outputs) == 1
     assert (workdir / "artifacts").is_dir()
     state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
-    assert state["first"].startswith("echo dry-run")
+    assert state["first"] == '{"id": "first"}'
 
     lines = (workdir / "transcript.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
@@ -47,7 +47,7 @@ def test_run_script_interpolates_from_state_and_persists(tmp_path):
     run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=True))
 
     state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
-    assert "echo dry-run" in state["b"]
+    assert "id" in state["b"]
     assert "@a" not in state["b"]
 
 
@@ -81,3 +81,21 @@ def test_run_script_resume_uses_transcript_completed_steps(tmp_path):
 
     assert len(outputs) == 1
     assert '"id": "three"' in outputs[0]
+
+
+def test_run_script_enforces_toolcall_contract(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text("gen txt prompt=hello\n", encoding="utf-8")
+
+    workdir = tmp_path / "run"
+    with pytest.raises(RunError, match="requires canonical"):
+        run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+
+def test_run_script_requires_params_name(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text("toolcall tool trace=test\n", encoding="utf-8")
+
+    workdir = tmp_path / "run"
+    with pytest.raises(RunError, match="params.name"):
+        run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
