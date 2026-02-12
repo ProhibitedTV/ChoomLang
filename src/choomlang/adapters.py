@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import base64
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
+from urllib import request
 
 from .errors import RunError
 from .llm import LLMClient, OllamaLLMClient
@@ -181,6 +183,103 @@ def _adapter_ollama_chat(
     )
 
 
+def _as_int(params: dict[str, Any], key: str) -> int | None:
+    value = params.get(key)
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise RunError(f"a1111_txt2img param '{key}' must be an integer") from exc
+
+
+def _adapter_a1111_txt2img(
+    params: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    timeout: float | None,
+    keep_alive: float | None,
+    llm_client: LLMClient,
+) -> str:
+    _ = keep_alive
+    _ = llm_client
+
+    base_url: str | None = None
+    if isinstance(params.get("base_url"), str) and params["base_url"]:
+        base_url = params["base_url"]
+    context = params.get("context")
+    if base_url is None and isinstance(context, dict):
+        context_base_url = context.get("base_url")
+        if isinstance(context_base_url, str) and context_base_url:
+            base_url = context_base_url
+    if base_url is None:
+        base_url = "http://127.0.0.1:7860"
+
+    seed_value = _as_int(params, "seed")
+
+    payload: dict[str, Any] = {}
+    for key in ("prompt",):
+        if key in params:
+            payload[key] = params[key]
+    if "negative" in params:
+        payload["negative_prompt"] = params["negative"]
+    if "cfg" in params:
+        payload["cfg_scale"] = params["cfg"]
+    if "sampler" in params:
+        payload["sampler_name"] = params["sampler"]
+    for key in ("width", "height", "steps", "seed"):
+        int_value = _as_int(params, key)
+        if int_value is not None:
+            payload[key] = int_value
+    if "n" in params:
+        batch_size = _as_int(params, "n")
+        if batch_size is None or batch_size < 1:
+            raise RunError("a1111_txt2img param 'n' must be an integer >= 1")
+        payload["batch_size"] = batch_size
+
+    if dry_run:
+        return json.dumps([], separators=(",", ":"))
+
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    endpoint = base_url.rstrip("/") + "/sdapi/v1/txt2img"
+    req = request.Request(endpoint, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+
+    try:
+        with request.urlopen(req, timeout=timeout) as resp:
+            response_body = resp.read()
+    except Exception as exc:
+        raise RunError(f"a1111_txt2img request failed: {exc}") from exc
+
+    try:
+        response_json = json.loads(response_body)
+    except json.JSONDecodeError as exc:
+        raise RunError("a1111_txt2img response was not valid JSON") from exc
+
+    images = response_json.get("images") if isinstance(response_json, dict) else None
+    if not isinstance(images, list) or not all(isinstance(item, str) for item in images):
+        raise RunError("a1111_txt2img response must include an 'images' list of base64 strings")
+
+    seed_suffix = "x" if seed_value in (None, -1) else str(seed_value)
+    step_value = _as_int(params, "step")
+    if step_value is None:
+        step_value = 1
+
+    output_paths: list[str] = []
+    for idx, encoded in enumerate(images, start=1):
+        try:
+            image_bytes = base64.b64decode(encoded, validate=True)
+        except Exception as exc:
+            raise RunError("a1111_txt2img response contained invalid base64 image data") from exc
+        filename = f"a1111_txt2img_{step_value:04d}_{idx:02d}_seed{seed_suffix}.png"
+        destination, relative = resolve_artifact_path(artifacts_dir, filename)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(image_bytes)
+        output_paths.append(relative)
+
+    return json.dumps(output_paths, separators=(",", ":"))
+
+
 BUILTIN_ADAPTERS: dict[str, Adapter] = {
     "echo": _adapter_echo,
     "list_dir": _adapter_list_dir,
@@ -189,6 +288,7 @@ BUILTIN_ADAPTERS: dict[str, Adapter] = {
     "write_file": _adapter_write_file,
     "ollama": _adapter_ollama_chat,
     "ollama_chat": _adapter_ollama_chat,
+    "a1111_txt2img": _adapter_a1111_txt2img,
 }
 
 
