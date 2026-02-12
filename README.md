@@ -2,7 +2,7 @@
 
 Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
-**v0.6 highlights:** clearer diagnostics, suggestion hints, shell completion helpers, and a one-command relay demo.
+**v0.7 highlights:** canonical op/target registry, strict structured validation, strict/permissive schema modes, and clearer unknown op/target diagnostics.
 
 ## What Problem ChoomLang Solves
 
@@ -62,7 +62,7 @@ scan txt labels=urgent,normal confidence=true
 ping tool service=renderer timeout=1.5
 ```
 
-Alias normalization happens during parse/serialization. Example mappings:
+Alias normalization is centralized in `src/choomlang/registry.py` and applied during parse/serialization. Example mappings:
 
 - `jack -> gen`
 - `scan -> classify`
@@ -83,13 +83,19 @@ choom relay --a-model llama3.1 --b-model qwen2.5 --structured --schema
 Behavior:
 
 1. With `--structured`, relay requests JSON output from Ollama.
-2. With schema enabled (`--schema`, default), relay first sends canonical schema in `format`.
+2. With schema enabled (`--schema`, default), relay uses schema mode:
+   - strict schema when `--strict` (default)
+   - permissive schema otherwise
 3. If schema response fails validation/parse/transport, relay retries once with `format="json"`.
 4. If that also fails:
    - `--strict` (default) returns an error.
    - Without strict, relay may fall back to DSL unless `--no-fallback` is set.
 
 Use `--no-schema` if a model/version struggles with schema-format responses but can still return valid JSON with `format="json"`.
+
+If structured validation rejects unknown values, use:
+- `--allow-unknown-op`
+- `--allow-unknown-target`
 
 ## Example Transcript (JSONL Snippet)
 
@@ -140,9 +146,9 @@ Use `choom --help` and `choom <command> --help` for full arguments.
 - `fmt`: canonicalize one DSL line
 - `validate`: parse-check DSL line
 - `script`: process multi-line scripts (`--to jsonl|dsl`, `--continue`)
-- `schema`: print canonical JSON schema
+- `schema`: print canonical JSON schema (`--mode strict|permissive`)
 - `guard`: print model repair prompt
-- `relay`: Ollama relay (`--structured`, `--schema/--no-schema`, `--probe`, `--warm`, `--log`)
+- `relay`: Ollama relay (`--structured`, `--schema/--no-schema`, `--allow-unknown-op`, `--allow-unknown-target`, `--probe`, `--warm`, `--log`)
 - `demo`: predefined structured relay example run
 - `completion`: print shell completion script
 - `teach`: token-by-token DSL explanation
