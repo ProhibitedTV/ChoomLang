@@ -4,10 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from .dsl import DSLParseError, format_dsl, parse_dsl
-from .protocol import build_guard_prompt, canonical_json_schema, script_to_dsl, script_to_jsonl
+from .protocol import (
+    KNOWN_OPS,
+    KNOWN_TARGETS,
+    build_guard_prompt,
+    canonical_json_schema,
+    script_to_dsl,
+    script_to_jsonl,
+)
 from .relay import OllamaClient, RelayError, run_probe, run_relay
 from .teach import explain_dsl
 from .translate import dsl_to_json, json_text_to_dsl
@@ -50,6 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_guard.add_argument("--error", help="Optional parse/validation error text")
     p_guard.add_argument("--previous", help="Optional previous model output")
 
+    p_completion = sub.add_parser("completion", help="Print shell completion script")
+    p_completion.add_argument("shell", nargs="?", choices=["bash", "zsh", "powershell"], help="Shell type")
+
     p_relay = sub.add_parser("relay", help="Run a local Ollama-backed relay")
     p_relay.add_argument("--a-model", required=True, help="Model name for speaker A")
     p_relay.add_argument("--b-model", required=True, help="Model name for speaker B")
@@ -75,7 +86,30 @@ def build_parser() -> argparse.ArgumentParser:
     p_relay.add_argument("--probe", action="store_true", help="Probe Ollama connectivity/model readiness and exit")
     p_relay.add_argument("--warm", action="store_true", help="Pre-warm both relay models before turn exchange")
 
+    p_demo = sub.add_parser("demo", help="Run a predefined structured relay demo")
+    p_demo.add_argument("--timeout", type=float, default=180.0, help="HTTP timeout in seconds for relay requests")
+    p_demo.add_argument("--keep-alive", dest="keep_alive", type=float, default=300.0, help="Ollama keep_alive value in seconds")
+
     return parser
+
+
+def _detect_shell() -> str:
+    if os.name == "nt":
+        return "powershell"
+    shell = os.environ.get("SHELL", "")
+    if shell.endswith("zsh"):
+        return "zsh"
+    return "bash"
+
+
+def _completion_script(shell: str) -> str:
+    if shell == "bash":
+        return """# bash completion for choom\n_choom_complete() {\n  local cur prev words cword\n  _init_completion || return\n  local cmds=\"translate teach validate fmt script schema guard completion relay demo\"\n  if [[ $cword -eq 1 ]]; then\n    COMPREPLY=( $(compgen -W \"$cmds\" -- \"$cur\") )\n    return\n  fi\n}\ncomplete -F _choom_complete choom\n"""
+    if shell == "zsh":
+        return """#compdef choom\n_arguments '1:command:(translate teach validate fmt script schema guard completion relay demo)'\n"""
+    if shell == "powershell":
+        return """Register-ArgumentCompleter -CommandName choom -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  'translate','teach','validate','fmt','script','schema','guard','completion','relay','demo' |\n    Where-Object { $_ -like \"$wordToComplete*\" } |\n    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n"""
+    raise ValueError("shell must be one of: bash, zsh, powershell")
 
 
 def _read_input(value: str | None) -> str:
@@ -94,9 +128,25 @@ def _read_script(path: str) -> str:
         return fh.read()
 
 
+def _print_validation_suggestions(text: str, err: DSLParseError, *, lenient: bool) -> None:
+    message = str(err)
+    if "missing '='" in message:
+        print("hint: key/value params must use key=value (example: gen txt prompt=hello)", file=sys.stderr)
+    if "missing '='" in message and " in token '" in message:
+        token = message.split(" in token '", 1)[1].split("'", 1)[0]
+        print(f"hint: did you mean {token}=<value>?", file=sys.stderr)
+    if "index" in message and not lenient:
+        print("hint: if input ends with '.', try --lenient", file=sys.stderr)
+    if "trailing punctuation" in text or text.strip().endswith((".", ",", ";")):
+        if not lenient:
+            print("hint: trailing punctuation is common; try --lenient", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    validate_text: str | None = None
 
     try:
         if args.command == "translate":
@@ -120,7 +170,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         if args.command == "validate":
-            parse_dsl(_read_input(args.input), lenient=args.lenient)
+            validate_text = _read_input(args.input)
+            parsed = parse_dsl(validate_text, lenient=args.lenient)
+            if parsed.op not in KNOWN_OPS:
+                print(f"hint: unknown op '{parsed.op}'. supported ops: {', '.join(KNOWN_OPS)}", file=sys.stderr)
+            if parsed.target not in KNOWN_TARGETS:
+                print(
+                    f"hint: unknown target '{parsed.target}'. supported targets: {', '.join(KNOWN_TARGETS)}",
+                    file=sys.stderr,
+                )
             print("ok")
             return 0
 
@@ -153,6 +211,35 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "guard":
             print(build_guard_prompt(error=args.error, previous=args.previous))
             return 0
+
+        if args.command == "completion":
+            shell = args.shell or _detect_shell()
+            print(_completion_script(shell), end="")
+            return 0
+
+        if args.command == "demo":
+            print("=== ChoomLang Relay Demo (v0.6) ===")
+            print("Models: llama3.2:latest <-> qwen2.5:latest")
+            print("Saving transcript to choom_demo.jsonl")
+            demo_args = [
+                "relay",
+                "--a-model",
+                "llama3.2:latest",
+                "--b-model",
+                "qwen2.5:latest",
+                "--turns",
+                "4",
+                "--structured",
+                "--start",
+                'gen txt prompt="ChoomLang in action: describe a client-server protocol in 5 lines"',
+                "--log",
+                "choom_demo.jsonl",
+                "--timeout",
+                str(args.timeout),
+                "--keep-alive",
+                str(args.keep_alive),
+            ]
+            return main(demo_args)
 
         if args.command == "relay":
             client = OllamaClient(timeout=args.timeout, keep_alive=args.keep_alive)
@@ -202,8 +289,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         parser.error("unknown command")
-    except (DSLParseError, ValueError, json.JSONDecodeError, RelayError, OSError) as exc:
+    except DSLParseError as exc:
         print(f"error: {exc}", file=sys.stderr)
+        if args.command == "validate":
+            _print_validation_suggestions(validate_text or "", exc, lenient=args.lenient)
+        return 2
+    except (ValueError, json.JSONDecodeError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    except RelayError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        if args.command == "relay":
+            print(
+                "hint: relay failed early. Try: choom relay --probe --a-model X --b-model Y",
+                file=sys.stderr,
+            )
         return 2
 
     return 1
