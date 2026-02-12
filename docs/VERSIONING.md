@@ -8,6 +8,8 @@ Version format:
 MAJOR.MINOR.PATCH
 ```
 
+Pre-release builds may use PEP 440-compatible suffixes (for example, `1.0.0rc1`) and can be labeled in release notes as `v1.0.0-rc.1`.
+
 ## MAJOR
 
 Increment MAJOR for backward-incompatible changes to stable public surfaces, including the v1.0 stability contract in `docs/STABILITY.md`:
