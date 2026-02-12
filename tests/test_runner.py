@@ -99,3 +99,82 @@ def test_run_script_requires_params_name(tmp_path):
     workdir = tmp_path / "run"
     with pytest.raises(RunError, match="params.name"):
         run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+
+def test_run_script_ollama_chat_adapter_with_fake_client(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        'toolcall tool name=ollama_chat model=llama3.2 prompt="hello"\n',
+        encoding="utf-8",
+    )
+
+    class FakeLLMClient:
+        def __init__(self):
+            self.calls = []
+
+        def chat(self, model, *, prompt=None, messages=None, timeout=None, keep_alive=None):
+            self.calls.append(
+                {
+                    "model": model,
+                    "prompt": prompt,
+                    "messages": messages,
+                    "timeout": timeout,
+                    "keep_alive": keep_alive,
+                }
+            )
+            return "assistant says hi"
+
+    fake = FakeLLMClient()
+    workdir = tmp_path / "run"
+    outputs = run_script(
+        str(script),
+        config=RunnerConfig(
+            workdir=str(workdir),
+            dry_run=False,
+            timeout=12.5,
+            keep_alive=45.0,
+            llm_client=fake,
+        ),
+    )
+
+    assert outputs == ["line 1: assistant says hi"]
+    assert fake.calls == [
+        {
+            "model": "llama3.2",
+            "prompt": "hello",
+            "messages": None,
+            "timeout": 12.5,
+            "keep_alive": 45.0,
+        }
+    ]
+
+
+def test_run_script_ollama_alias_accepts_messages_json_string(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        "toolcall tool name=ollama model=qwen2.5 "
+        "messages='[{\"role\":\"user\",\"content\":\"ping\"}]'\n",
+        encoding="utf-8",
+    )
+
+
+    class FakeLLMClient:
+        def __init__(self):
+            self.calls = []
+
+        def chat(self, model, *, prompt=None, messages=None, timeout=None, keep_alive=None):
+            self.calls.append({"model": model, "prompt": prompt, "messages": messages})
+            return "pong"
+
+    fake = FakeLLMClient()
+    workdir = tmp_path / "run"
+    outputs = run_script(str(script), config=RunnerConfig(workdir=str(workdir), llm_client=fake))
+
+    assert outputs == ["line 1: pong"]
+    assert fake.calls == [
+        {
+            "model": "qwen2.5",
+            "prompt": None,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+    ]

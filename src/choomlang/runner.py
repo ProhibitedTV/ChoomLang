@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .llm import LLMClient
+
 from .dsl import DSLParseError, parse_dsl
 from .adapters import run_adapter
 from .errors import RunError
@@ -25,6 +27,7 @@ class RunnerConfig:
     keep_alive: float | None = None
     max_steps: int | None = None
     resume: int | bool | None = None
+    llm_client: LLMClient | None = None
 
 
 @dataclass
@@ -99,6 +102,7 @@ def run_script(
     timeout: float | None = None,
     keep_alive: float | None = None,
     config: RunnerConfig | None = None,
+    llm_client: LLMClient | None = None,
 ) -> list[str]:
     """Execute a .choom script line-by-line with persistent state + transcript."""
     cfg = config or RunnerConfig(
@@ -108,6 +112,7 @@ def run_script(
         keep_alive=keep_alive,
         max_steps=max_steps,
         resume=resume,
+        llm_client=llm_client,
     )
     _ = cfg.timeout
     _ = cfg.keep_alive
@@ -163,7 +168,14 @@ def run_script(
                     results.append(f"line {line_number}: skipped ({skip_message})")
                     continue
 
-                output = _execute_payload(payload, artifacts_dir, cfg.dry_run)
+                output = _execute_payload(
+                    payload,
+                    artifacts_dir,
+                    cfg.dry_run,
+                    timeout=cfg.timeout,
+                    keep_alive=cfg.keep_alive,
+                    llm_client=cfg.llm_client,
+                )
                 stored_id = _store_output_if_requested(state, payload, output)
                 state.save_atomic(state_path)
 
@@ -263,7 +275,15 @@ def _interpolate_string(value: str, state: RunnerState) -> str:
     return rendered
 
 
-def _execute_payload(payload: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+def _execute_payload(
+    payload: dict[str, Any],
+    artifacts_dir: Path,
+    dry_run: bool,
+    *,
+    timeout: float | None = None,
+    keep_alive: float | None = None,
+    llm_client: LLMClient | None = None,
+) -> str:
     if payload.get("op") != "toolcall" or payload.get("target") != "tool":
         raise RunError("runner requires canonical op='toolcall' and target='tool'")
 
@@ -276,7 +296,15 @@ def _execute_payload(payload: dict[str, Any], artifacts_dir: Path, dry_run: bool
         raise RunError("runner requires params.name for toolcall adapter selection")
 
     adapter_params = {key: value for key, value in params.items() if key != "name"}
-    return run_adapter(tool_name, adapter_params, artifacts_dir, dry_run)
+    return run_adapter(
+        tool_name,
+        adapter_params,
+        artifacts_dir,
+        dry_run,
+        timeout=timeout,
+        keep_alive=keep_alive,
+        llm_client=llm_client,
+    )
 
 
 def _store_output_if_requested(state: RunnerState, payload: dict[str, Any], output: Any) -> str | None:
