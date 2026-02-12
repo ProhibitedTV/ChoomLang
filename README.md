@@ -116,6 +116,14 @@ Relay transcript logging (JSONL):
 choom relay --a-model llama3.1 --b-model qwen2.5 --structured --log relay.jsonl
 ```
 
+## Structured Mode
+
+- Uses Ollama structured outputs via the `format` field.
+- Default behavior is schema-first (`--schema` enabled with `--structured`) then JSON fallback.
+- Why this matters: deterministic machine-parseable turn payloads and reduced parser drift.
+- Use `--no-schema` for schema incompatibility/debug scenarios where plain JSON format is more reliable for a given model.
+- Relay fallback controls: `--no-fallback` disables structured retries, and `--strict` stops on structured/JSON failure with diagnostic details.
+
 
 Recommended on Windows PowerShell:
 
