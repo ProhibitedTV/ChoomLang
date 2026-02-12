@@ -1,9 +1,0 @@
-{
-  "name": "writing_outline",
-  "defaults": {
-    "format": "outline",
-    "temperature": 0.4,
-    "priority": 2
-  },
-  "notes": "Defaults for structured writing outlines"
-}

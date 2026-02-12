@@ -1,0 +1,10 @@
+{
+  "name": "product_shot",
+  "tags": ["image", "product", "studio"],
+  "description": "Defaults for clean studio product imagery",
+  "defaults": {
+    "lighting": "softbox",
+    "background": "neutral",
+    "quality": "high"
+  }
+}

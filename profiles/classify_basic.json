@@ -1,0 +1,9 @@
+{
+  "name": "classify_basic",
+  "tags": ["general", "classification", "labels"],
+  "description": "Defaults for basic label classification",
+  "defaults": {
+    "labels": "positive,neutral,negative",
+    "confidence": true
+  }
+}

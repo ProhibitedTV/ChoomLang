@@ -1,0 +1,10 @@
+{
+  "name": "write_file_safe",
+  "tags": ["tool", "write_file", "safe"],
+  "description": "Defaults for safe local write_file tool calls",
+  "defaults": {
+    "name": "write_file",
+    "path": "notes/output.txt",
+    "overwrite": false
+  }
+}

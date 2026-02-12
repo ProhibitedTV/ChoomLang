@@ -21,7 +21,14 @@ from .relay import OllamaClient, RelayError, run_probe, run_relay
 from .run import RunError, run_toolcall
 from .teach import explain_dsl
 from .translate import dsl_to_json, json_text_to_dsl
-from .profiles import ProfileError, apply_profile_to_dsl, list_profiles, read_profile
+from .profiles import (
+    ProfileError,
+    apply_profile_to_dsl,
+    discover_profiles,
+    list_profiles,
+    read_profile,
+    search_profiles,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -56,12 +63,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_profile = sub.add_parser("profile", help="Manage and apply parameter profiles")
     profile_sub = p_profile.add_subparsers(dest="profile_command", required=True)
-    profile_sub.add_parser("list", help="List available profiles")
+    p_profile_list = profile_sub.add_parser("list", help="List available profiles")
+    p_profile_list.add_argument("--tag", help="Filter profiles by tag (case-insensitive exact match)")
+    p_profile_search = profile_sub.add_parser("search", help="Search profiles by substring")
+    p_profile_search.add_argument("query", help="Case-insensitive substring for name/description/tags")
     p_profile_show = profile_sub.add_parser("show", help="Show one profile JSON")
     p_profile_show.add_argument("name", help="Profile name")
     p_profile_apply = profile_sub.add_parser("apply", help="Apply profile defaults to a DSL line")
     p_profile_apply.add_argument("name", help="Profile name")
     p_profile_apply.add_argument("dsl", help="DSL line")
+    p_profile_apply.add_argument(
+        "--set",
+        action="append",
+        dest="set_items",
+        default=[],
+        help="Override one parameter using key=value (repeatable)",
+    )
 
     p_run = sub.add_parser("run", help="Execute safe local toolcall adapters")
     p_run.add_argument("input", help="DSL line or path to a .choom file")
@@ -159,6 +176,38 @@ def _read_run_input(value: str) -> str:
     if maybe_path.exists() and maybe_path.is_file():
         return maybe_path.read_text(encoding="utf-8").strip()
     return value
+
+
+
+
+def _coerce_override_value(raw: str) -> object:
+    lower = raw.lower()
+    if lower == "true":
+        return True
+    if lower == "false":
+        return False
+    if lower == "null":
+        return None
+    try:
+        if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
+            return int(raw)
+        if "." in raw:
+            return float(raw)
+    except ValueError:
+        pass
+    return raw
+
+
+def _parse_set_overrides(tokens: list[str]) -> dict[str, object]:
+    overrides: dict[str, object] = {}
+    for token in tokens:
+        if "=" not in token:
+            raise ProfileError(f"invalid --set token '{token}': expected key=value")
+        key, raw_value = token.split("=", 1)
+        if not key or raw_value == "":
+            raise ProfileError(f"invalid --set token '{token}': expected key=value")
+        overrides[key] = _coerce_override_value(raw_value)
+    return overrides
 
 
 def _lint_dsl(text: str, *, lenient: bool, strict_ops: bool, strict_targets: bool) -> tuple[list[str], list[str]]:
@@ -266,14 +315,23 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "profile":
             if args.profile_command == "list":
-                for name in list_profiles():
+                valid, invalid = discover_profiles()
+                for warning in invalid:
+                    print(f"warn: skipping invalid profile ({warning})", file=sys.stderr)
+                names = list_profiles(tag=args.tag)
+                for name in names:
+                    print(name)
+                return 0
+            if args.profile_command == "search":
+                for name in search_profiles(args.query):
                     print(name)
                 return 0
             if args.profile_command == "show":
                 print(json.dumps(read_profile(args.name), indent=2, sort_keys=True))
                 return 0
             if args.profile_command == "apply":
-                print(apply_profile_to_dsl(args.name, args.dsl))
+                overrides = _parse_set_overrides(args.set_items)
+                print(apply_profile_to_dsl(args.name, args.dsl, overrides=overrides))
                 return 0
 
         if args.command == "run":

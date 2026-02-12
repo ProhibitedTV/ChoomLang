@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0
+
+- Replaced project-specific profiles with a generic profile pack spanning text, image, general, and tool workflows.
+- Added `profiles/schema.json` and runtime profile validation with actionable errors.
+- Added profile UX improvements: `choom profile list --tag`, `choom profile search`, and `choom profile apply --set` overrides.
+- Improved profile docs in README and added `CONTRIBUTING.md` guidance for adding new profiles.
+- Rolled package version metadata and tests to 0.9.0.
+
 ## 0.8.0
 
 - Added profile support with `choom profile list|show|apply` and repository-shipped examples under `profiles/`.

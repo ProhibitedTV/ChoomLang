@@ -1,0 +1,10 @@
+{
+  "name": "wallpaper",
+  "tags": ["image", "wallpaper", "cinematic"],
+  "description": "Defaults for generating generic wallpapers",
+  "defaults": {
+    "res": "1920x1080",
+    "style": "cinematic",
+    "quality": "high"
+  }
+}
