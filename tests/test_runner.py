@@ -268,3 +268,19 @@ def test_run_script_ollama_alias_accepts_messages_json_string(tmp_path):
             "messages": [{"role": "user", "content": "ping"}],
         }
     ]
+
+
+def test_run_script_gen_script_stores_state_and_writes_artifact(tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text(
+        'gen script id=plan text="toolcall tool name=echo msg=hi"\n',
+        encoding="utf-8",
+    )
+
+    workdir = tmp_path / "run"
+    outputs = run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+    assert outputs == ["line 1: toolcall tool name=echo msg=hi"]
+    state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
+    assert state["plan"] == "toolcall tool name=echo msg=hi"
+    assert (workdir / "artifacts" / "plan.choom").read_text(encoding="utf-8") == "toolcall tool name=echo msg=hi"

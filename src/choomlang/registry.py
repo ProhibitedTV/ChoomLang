@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 CANONICAL_OPS = {"gen", "classify", "summarize", "plan", "healthcheck", "toolcall", "forward"}
-CANONICAL_TARGETS = {"img", "txt", "aud", "vid", "vec", "tool"}
+CANONICAL_TARGETS = {"img", "txt", "aud", "vid", "vec", "tool", "script"}
 OP_ALIASES = {
     "jack": "gen",
     "scan": "classify",
@@ -56,4 +56,3 @@ def validate_payload(
 
     if strict_targets and target not in CANONICAL_TARGETS:
         raise ValueError(f"invalid field target={target!r}: unknown canonical target")
-

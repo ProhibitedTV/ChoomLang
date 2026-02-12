@@ -315,3 +315,24 @@ choom script examples/dsl.txt --to jsonl
 ## Release Steps
 
 See [RELEASE.md](RELEASE.md) for test/build/tag/release guidance.
+
+
+## Script Output Relay Flow (v0.10.1)
+
+Use `target=script` when you want model output to be runnable ChoomLang lines.
+
+```bash
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --start 'gen script lines=6 topic="incident triage workflow"' --log script_relay.jsonl
+```
+
+Validate and save a generated script (from stdin or file), then execute it:
+
+```bash
+choom script generated.choom --validate-only
+choom run generated.choom --workdir .choom-run
+```
+
+```powershell
+choom script generated.choom --validate-only
+choom run generated.choom --workdir .choom-run
+```

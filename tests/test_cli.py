@@ -146,7 +146,7 @@ def test_cli_schema_strict_contains_enum_only(capsys):
         "toolcall",
         "forward",
     ]
-    assert payload["$defs"]["knownTarget"]["enum"] == ["img", "txt", "aud", "vid", "vec", "tool"]
+    assert payload["$defs"]["knownTarget"]["enum"] == ["img", "txt", "aud", "vid", "vec", "tool", "script"]
     assert payload["properties"]["op"] == {"$ref": "#/$defs/knownOp", "description": "Canonical operation name."}
     assert payload["properties"]["target"] == {"$ref": "#/$defs/knownTarget", "description": "Canonical target domain."}
 
@@ -305,3 +305,23 @@ def test_cli_run_reports_actionable_errors(capsys, tmp_path):
     err = capsys.readouterr().err
     assert code == 2
     assert "line 1: runtime error:" in err
+
+
+def test_cli_validate_script_command(capsys, tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text("gen txt prompt=hello\n", encoding="utf-8")
+
+    code = main(["validate-script", str(script)])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert captured.out.strip() == "ok"
+
+
+def test_cli_script_validate_only(capsys, tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text("gen txt prompt=hello\n", encoding="utf-8")
+
+    code = main(["script", str(script), "--validate-only"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert captured.out.strip() == "ok"
