@@ -13,8 +13,8 @@ from choomlang.errors import RunError
 from choomlang.run import run_toolcall
 
 
-def test_version_is_0_10_1():
-    assert __version__ == "0.10.1"
+def test_version_is_0_10_2():
+    assert __version__ == "0.10.2"
 
 
 def test_profile_schema_validation_helper_valid_and_invalid():

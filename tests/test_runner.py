@@ -326,7 +326,7 @@ def test_run_script_gen_script_stores_state_and_writes_artifact(tmp_path):
     assert (workdir / "artifacts" / "plan.choom").read_text(encoding="utf-8") == "toolcall tool name=echo msg=hi"
 
 
-def test_run_script_summarizes_a1111_outputs_in_transcript_without_changing_state(tmp_path, monkeypatch):
+def test_run_script_a1111_output_is_stored_as_list_string_and_transcript_has_compact_files_summary(tmp_path, monkeypatch):
     script = tmp_path / "demo.choom"
     script.write_text("toolcall tool name=a1111_txt2img id=imgs\n", encoding="utf-8")
 
@@ -336,7 +336,7 @@ def test_run_script_summarizes_a1111_outputs_in_transcript_without_changing_stat
         _ = artifacts_dir
         _ = dry_run
         _ = kwargs
-        return '["a1111_txt2img_0001_01_seedx.png","nested/image_02.png"]'
+        return '["a1111_txt2img_0001_01_seedx.png","a1111_txt2img_0001_02_seedx.png"]'
 
     monkeypatch.setattr("choomlang.runner.run_adapter", fake_run_adapter)
 
@@ -344,13 +344,14 @@ def test_run_script_summarizes_a1111_outputs_in_transcript_without_changing_stat
     run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
 
     state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
-    assert state["imgs"] == '["a1111_txt2img_0001_01_seedx.png","nested/image_02.png"]'
+    assert state["imgs"] == '["a1111_txt2img_0001_01_seedx.png","a1111_txt2img_0001_02_seedx.png"]'
 
     record = json.loads((workdir / "transcript.jsonl").read_text(encoding="utf-8").strip())
     assert record["output"] == {
-        "files": ["a1111_txt2img_0001_01_seedx.png", "nested/image_02.png"],
+        "files": ["a1111_txt2img_0001_01_seedx.png", "a1111_txt2img_0001_02_seedx.png"],
         "count": 2,
     }
+    assert "iVBOR" not in json.dumps(record["output"], sort_keys=True)
 
 
 def test_run_script_does_not_summarize_non_relative_a1111_output_paths(tmp_path, monkeypatch):
