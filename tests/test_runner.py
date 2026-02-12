@@ -324,3 +324,46 @@ def test_run_script_gen_script_stores_state_and_writes_artifact(tmp_path):
     state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
     assert state["plan"] == "toolcall tool name=echo msg=hi"
     assert (workdir / "artifacts" / "plan.choom").read_text(encoding="utf-8") == "toolcall tool name=echo msg=hi"
+
+
+def test_run_script_summarizes_a1111_outputs_in_transcript_without_changing_state(tmp_path, monkeypatch):
+    script = tmp_path / "demo.choom"
+    script.write_text("toolcall tool name=a1111_txt2img id=imgs\n", encoding="utf-8")
+
+    def fake_run_adapter(name, params, artifacts_dir, dry_run, **kwargs):
+        _ = name
+        _ = params
+        _ = artifacts_dir
+        _ = dry_run
+        _ = kwargs
+        return '["a1111_txt2img_0001_01_seedx.png","nested/image_02.png"]'
+
+    monkeypatch.setattr("choomlang.runner.run_adapter", fake_run_adapter)
+
+    workdir = tmp_path / "run"
+    run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+    state = json.loads((workdir / "state.json").read_text(encoding="utf-8"))
+    assert state["imgs"] == '["a1111_txt2img_0001_01_seedx.png","nested/image_02.png"]'
+
+    record = json.loads((workdir / "transcript.jsonl").read_text(encoding="utf-8").strip())
+    assert record["output"] == {
+        "files": ["a1111_txt2img_0001_01_seedx.png", "nested/image_02.png"],
+        "count": 2,
+    }
+
+
+def test_run_script_does_not_summarize_non_relative_a1111_output_paths(tmp_path, monkeypatch):
+    script = tmp_path / "demo.choom"
+    script.write_text("toolcall tool name=a1111_txt2img\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "choomlang.runner.run_adapter",
+        lambda *args, **kwargs: '["../bad.png"]',
+    )
+
+    workdir = tmp_path / "run"
+    run_script(str(script), config=RunnerConfig(workdir=str(workdir), dry_run=False))
+
+    record = json.loads((workdir / "transcript.jsonl").read_text(encoding="utf-8").strip())
+    assert record["output"] == '["../bad.png"]'
