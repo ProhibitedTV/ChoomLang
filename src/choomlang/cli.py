@@ -18,7 +18,8 @@ from .protocol import (
     script_to_jsonl,
 )
 from .relay import OllamaClient, RelayError, run_probe, run_relay
-from .run import RunError, run_toolcall
+from .run import RunError
+from .runner import run_script
 from .teach import explain_dsl
 from .translate import dsl_to_json, json_text_to_dsl
 from .profiles import (
@@ -80,10 +81,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Override one parameter using key=value (repeatable)",
     )
 
-    p_run = sub.add_parser("run", help="Execute safe local toolcall adapters")
-    p_run.add_argument("input", help="DSL line or path to a .choom file")
-    p_run.add_argument("--dry-run", action="store_true", help="Print what would execute")
-    p_run.add_argument("--out-dir", default="out", help="Safe output directory for file-writing adapters")
+    p_run = sub.add_parser("run", help="Execute .choom scripts")
+    p_run.add_argument("script", help="Path to a .choom script file (path/to/file.choom)")
+    p_run.add_argument("--workdir", help="Working directory for relative runtime paths")
+    p_run.add_argument("--resume", type=int, help="Resume from 1-indexed filtered script step")
+    p_run.add_argument("--max-steps", type=int, help="Maximum number of filtered script steps to run")
+    p_run.add_argument("--dry-run", action="store_true", help="Plan script execution without side effects")
+    p_run.add_argument("--timeout", type=float, help="Reserved runtime timeout in seconds")
+    p_run.add_argument("--keep-alive", dest="keep_alive", type=float, help="Reserved runtime keep-alive in seconds")
 
     p_script = sub.add_parser("script", help="Process multi-line ChoomLang scripts")
     p_script.add_argument("path", help="Script path or '-' for stdin")
@@ -169,15 +174,6 @@ def _read_script(path: str) -> str:
         return sys.stdin.read()
     with open(path, "r", encoding="utf-8") as fh:
         return fh.read()
-
-
-def _read_run_input(value: str) -> str:
-    maybe_path = Path(value)
-    if maybe_path.exists() and maybe_path.is_file():
-        return maybe_path.read_text(encoding="utf-8").strip()
-    return value
-
-
 
 
 def _coerce_override_value(raw: str) -> object:
@@ -335,8 +331,17 @@ def main(argv: list[str] | None = None) -> int:
                 return 0
 
         if args.command == "run":
-            result = run_toolcall(_read_run_input(args.input), out_dir=args.out_dir, dry_run=args.dry_run)
-            print(result)
+            results = run_script(
+                args.script,
+                workdir=args.workdir,
+                resume=args.resume,
+                max_steps=args.max_steps,
+                dry_run=args.dry_run,
+                timeout=args.timeout,
+                keep_alive=args.keep_alive,
+            )
+            for line in results:
+                print(line)
             return 0
 
         if args.command == "script":

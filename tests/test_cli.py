@@ -252,3 +252,56 @@ def test_cli_demo_shortcut(monkeypatch, capsys):
     assert captured["turns"] == 4
     assert captured["structured"] is True
     assert captured["log_path"] == "choom_demo.jsonl"
+
+
+def test_cli_run_uses_filtered_script_lines(capsys, tmp_path):
+    script = tmp_path / "run.choom"
+    script.write_text(
+        "\n"
+        "# comment\n"
+        "toolcall tool name=echo id=1\n"
+        "\n"
+        "toolcall tool name=echo id=2 # inline comment\n",
+        encoding="utf-8",
+    )
+
+    code = main(["run", str(script), "--dry-run"])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert code == 0
+    assert len(out) == 2
+    assert out[0].startswith("line 3:")
+    assert out[1].startswith("line 5:")
+
+
+def test_cli_run_resume_and_max_steps(capsys, tmp_path):
+    script = tmp_path / "run.choom"
+    script.write_text(
+        "toolcall tool name=echo id=1\n"
+        "toolcall tool name=echo id=2\n"
+        "toolcall tool name=echo id=3\n",
+        encoding="utf-8",
+    )
+
+    code = main(["run", str(script), "--dry-run", "--resume", "2", "--max-steps", "1"])
+    out = capsys.readouterr().out.strip().splitlines()
+    assert code == 0
+    assert len(out) == 1
+    assert '"id": 2' in out[0]
+
+
+def test_cli_run_reports_actionable_errors(capsys, tmp_path):
+    bad_parse = tmp_path / "bad_parse.choom"
+    bad_parse.write_text("broken\n", encoding="utf-8")
+
+    code = main(["run", str(bad_parse)])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "line 1: parse error:" in err
+
+    bad_runtime = tmp_path / "bad_runtime.choom"
+    bad_runtime.write_text("toolcall tool name=unknown\n", encoding="utf-8")
+
+    code = main(["run", str(bad_runtime)])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "line 1: runtime error:" in err

@@ -201,8 +201,12 @@ def test_run_blocks_path_traversal(tmp_path):
         raise AssertionError("expected path traversal RunError")
 
 
-def test_cli_run_dry_run(capsys):
-    code = main(["run", "toolcall tool name=echo id=123", "--dry-run"])
+def test_cli_run_dry_run(capsys, tmp_path):
+    script = tmp_path / "demo.choom"
+    script.write_text("toolcall tool name=echo id=123\n", encoding="utf-8")
+
+    code = main(["run", str(script), "--dry-run"])
     out = capsys.readouterr().out
     assert code == 0
+    assert "line 1:" in out
     assert "dry-run" in out
