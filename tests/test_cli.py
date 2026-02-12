@@ -3,6 +3,15 @@ import json
 from choomlang.cli import main
 
 
+def test_cli_version(capsys):
+    import pytest
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    out = capsys.readouterr().out.strip()
+    assert exc.value.code == 0
+    assert out.startswith("choom ")
+
 def test_cli_translate(capsys):
     code = main(["translate", "jack img[2] style=studio res=1024x1024"])
     out = capsys.readouterr().out

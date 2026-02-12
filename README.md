@@ -35,7 +35,8 @@ Why this split:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install .
+choom --version
 
 choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
 choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
@@ -46,7 +47,8 @@ choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 2
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
-pip install -e .
+pip install .
+choom --version
 
 choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
 choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
@@ -58,7 +60,7 @@ If `--probe` fails, verify Ollama is running and both model names are available.
 ## Updated Quick Start
 
 ```bash
-pip install -e .
+pip install .
 choom profile list
 choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro
 choom lint "jack txt tone=noir"
@@ -66,7 +68,7 @@ choom run examples/workflow_v010.choom --workdir .choom-run --dry-run --max-step
 ```
 
 ```powershell
-pip install -e .
+pip install .
 choom profile list
 choom profile apply wallpaper "gen img prompt="night skyline"" --set style=retro
 choom lint "jack txt tone=noir"
@@ -280,18 +282,27 @@ See [DEMO.md](DEMO.md) for a complete minimal run.
 
 ## Shell Completion
 
-Generate completion scripts directly from the CLI:
+Generate completion scripts directly from the CLI and save/load them with your shell startup config:
 
 ```bash
-choom completion bash
-choom completion zsh
+# Bash (Linux/macOS)
+choom completion bash > ~/.local/share/bash-completion/completions/choom
+# or source directly for current shell
+source <(choom completion bash)
+
+# Zsh
+choom completion zsh > ~/.zfunc/_choom
+autoload -U compinit && compinit
 ```
 
 ```powershell
-choom completion powershell
+# PowerShell (Windows)
+choom completion powershell | Out-String | Invoke-Expression
+# Persist by appending to your profile
+choom completion powershell | Add-Content -Path $PROFILE
 ```
 
-If you omit the shell argument, Choom tries to auto-detect your environment and prints a suitable script.
+If you omit the shell argument, Choom auto-detects your environment (`bash`, `zsh`, or `powershell`) and prints the corresponding completion script.
 
 ## Relay Demo Shortcut
 
@@ -347,7 +358,7 @@ choom script examples/dsl.txt --to jsonl
 ## Contributing
 
 - Python 3.10+
-- Install editable package: `pip install -e .`
+- Install package: `pip install .`
 - Run tests: `pytest`
 - Keep changes deterministic and focused
 - For CLI behavior updates, keep docs and examples in sync

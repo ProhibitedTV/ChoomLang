@@ -8,6 +8,7 @@ import os
 import sys
 from pathlib import Path
 
+from . import __version__
 from .dsl import DSLParseError, format_dsl, parse_dsl
 from .protocol import (
     KNOWN_OPS,
@@ -35,6 +36,7 @@ from .profiles import (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="choom", description="ChoomLang CLI")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_translate = sub.add_parser("translate", help="Translate DSL <-> JSON")
@@ -188,9 +190,9 @@ def _detect_shell() -> str:
 
 def _completion_script(shell: str) -> str:
     if shell == "bash":
-        return """# bash completion for choom\n_choom_complete() {\n  local cur prev words cword\n  _init_completion || return\n  local cmds=\"translate teach validate fmt lint profile run script schema guard completion relay demo\"\n  if [[ $cword -eq 1 ]]; then\n    COMPREPLY=( $(compgen -W \"$cmds\" -- \"$cur\") )\n    return\n  fi\n}\ncomplete -F _choom_complete choom\n"""
+        return """# bash completion for choom\n_choom_complete() {\n  local cur prev words cword\n  _init_completion || return\n  local cmds=\"translate teach validate fmt lint profile run script validate-script schema guard completion relay demo\"\n  if [[ $cword -eq 1 ]]; then\n    COMPREPLY=( $(compgen -W \"$cmds\" -- \"$cur\") )\n    return\n  fi\n}\ncomplete -F _choom_complete choom\n"""
     if shell == "zsh":
-        return """#compdef choom\n_arguments '1:command:(translate teach validate fmt lint profile run script schema guard completion relay demo)'\n"""
+        return """#compdef choom\n_arguments '1:command:(translate teach validate fmt lint profile run script validate-script schema guard completion relay demo)'\n"""
     if shell == "powershell":
         return """Register-ArgumentCompleter -CommandName choom -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  'translate','teach','validate','fmt','lint','profile','run','script','validate-script','schema','guard','completion','relay','demo' |\n    Where-Object { $_ -like \"$wordToComplete*\" } |\n    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n"""
     raise ValueError("shell must be one of: bash, zsh, powershell")

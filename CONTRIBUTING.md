@@ -1,39 +1,45 @@
 # Contributing to ChoomLang
 
-## Quick setup
+Thanks for contributing to ChoomLang.
+
+## Development install
 
 - Python 3.10+
-- `pip install -e .`
-- `pytest -q`
+- Create and activate a virtual environment
+- Install development dependencies in editable mode:
 
-## Adding a profile
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e .
+```
 
-Profiles live in `profiles/` and must validate against `profiles/schema.json`.
+Windows PowerShell:
 
-Required fields:
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -e .
+```
 
-- `name` (string)
-- `defaults` (object)
+## Running tests
 
-Optional fields:
+Run the full suite with pytest:
 
-- `tags` (array of strings)
-- `description` (string)
-- `notes` (string)
+```bash
+pytest
+```
 
-Rules for `defaults` values:
+## Style guidelines
 
-- scalar only: string, number, boolean, or null
-- no nested objects or arrays
+- Keep changes focused, deterministic, and consistent with existing code style.
+- Core implementation in `src/choomlang/` should use only Python standard library.
+- Prefer clear naming and small functions.
+- Keep CLI examples aligned with real flags implemented in `src/choomlang/cli.py`.
+- Update docs/examples when behavior changes.
 
-Tag guidance:
+## Before opening a PR
 
-- keep tags generic and reusable
-- prefer lowercase words (`text`, `image`, `tool`, etc.)
-- include 2-4 tags per profile where practical
-
-Before opening a PR:
-
-1. Run `pytest -q`
-2. Run `choom profile list`
-3. Ensure profile names and examples in docs match implemented CLI behavior
+1. Run `pytest` and confirm all tests pass.
+2. Verify packaging still works (`pip install .` and `python -m build`).
+3. Ensure docs and examples remain accurate for Linux/macOS and Windows where practical.
