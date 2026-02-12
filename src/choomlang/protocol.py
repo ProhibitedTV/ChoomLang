@@ -6,7 +6,7 @@ from .dsl import DSLParseError, format_dsl, parse_dsl
 from .registry import CANONICAL_OPS, CANONICAL_TARGETS
 
 KNOWN_OPS = ["gen", "classify", "summarize", "plan", "healthcheck", "toolcall", "forward"]
-KNOWN_TARGETS = ["img", "txt", "aud", "vid", "vec", "tool"]
+KNOWN_TARGETS = ["img", "txt", "aud", "vid", "vec", "tool", "script"]
 
 
 def strip_inline_comment(line: str) -> str:
@@ -121,11 +121,45 @@ def canonical_json_schema(*, mode: str = "strict") -> dict[str, object]:
                 },
             },
         },
+        "allOf": [
+            {
+                "if": {
+                    "properties": {
+                        "op": {"const": "gen"},
+                        "target": {"const": "script"},
+                    },
+                    "required": ["op", "target"],
+                },
+                "then": {
+                    "properties": {
+                        "params": {
+                            "type": "object",
+                            "required": ["text"],
+                            "properties": {
+                                "text": {"type": "string"},
+                            },
+                            "not": {"required": ["prompt"]},
+                        }
+                    }
+                },
+            }
+        ],
         "$defs": {
             "knownOp": {"type": "string", "enum": KNOWN_OPS},
             "knownTarget": {"type": "string", "enum": KNOWN_TARGETS},
         },
     }
+
+
+def parse_script_text(text: str) -> list[dict[str, object]]:
+    """Parse a multi-line ChoomLang script string into canonical payload rows."""
+    parsed_rows: list[dict[str, object]] = []
+    for line_number, line in iter_script_lines(text):
+        try:
+            parsed_rows.append(parse_dsl(line).to_json_dict())
+        except DSLParseError as exc:
+            raise DSLParseError(f"line {line_number}: {exc}") from exc
+    return parsed_rows
 
 
 def script_to_jsonl(text: str, *, fail_fast: bool = True) -> tuple[list[str], list[str]]:

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1
+
+- Added `script` as a canonical target for payload validation and schema generation.
+- Added multi-line script validation helper (`parse_script_text`) and CLI entrypoints: `choom validate-script` and `choom script --validate-only`.
+- Updated structured relay validation for `gen script`: requires `params.text`, rejects `params.prompt`, and validates parseable script content.
+- Extended runner support for `gen script id=...`: stores script text in state and writes `artifacts/<id>.choom` when `id` is provided.
+- Added tests for script parsing, structured relay script validation, and runner script persistence.
+
 ## 0.10.0
 
 - Added the `choom run` workflow runner for multi-step `.choom` execution with deterministic step records.

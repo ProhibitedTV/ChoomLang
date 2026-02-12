@@ -1,6 +1,7 @@
 import pytest
 
 from choomlang.dsl import DSLParseError, format_dsl, parse_dsl, serialize_dsl
+from choomlang.protocol import parse_script_text
 
 
 def test_roundtrip_dsl_json_dsl():
@@ -86,3 +87,23 @@ def test_format_dsl_lenient_trailing_punctuation():
         format_dsl("gen txt .")
 
     assert format_dsl("gen txt .", lenient=True) == "gen txt"
+
+
+def test_parse_script_text_parses_multiline_and_ignores_comments():
+    rows = parse_script_text(
+        """
+# first
+
+gen txt prompt=hello
+# inline test
+classify txt label=ok # comment
+"""
+    )
+    assert len(rows) == 2
+    assert rows[0]["op"] == "gen"
+    assert rows[1]["op"] == "classify"
+
+
+def test_parse_script_text_reports_line_error():
+    with pytest.raises(DSLParseError, match="line 2"):
+        parse_script_text("gen txt prompt=ok\ninvalid")

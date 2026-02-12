@@ -16,6 +16,7 @@ from .protocol import (
     canonical_json_schema,
     script_to_dsl,
     script_to_jsonl,
+    parse_script_text,
 )
 from .relay import OllamaClient, RelayError, run_probe, run_relay
 from .run import RunError
@@ -93,9 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_script = sub.add_parser("script", help="Process multi-line ChoomLang scripts")
     p_script.add_argument("path", help="Script path or '-' for stdin")
     p_script.add_argument("--to", choices=["jsonl", "dsl"], default="jsonl", help="Output format")
+    p_script.add_argument("--validate-only", action="store_true", help="Validate script and print only ok/error")
     mode = p_script.add_mutually_exclusive_group()
     mode.add_argument("--fail-fast", dest="fail_fast", action="store_true", default=True)
     mode.add_argument("--continue", dest="fail_fast", action="store_false")
+
+    p_validate_script = sub.add_parser("validate-script", help="Validate a multi-line ChoomLang script")
+    p_validate_script.add_argument("path", help="Script path or '-' for stdin")
 
     p_schema = sub.add_parser("schema", help="Emit JSON Schema for canonical payload JSON")
     p_schema.add_argument("--mode", choices=["strict", "permissive"], default="strict", help="Schema strictness mode")
@@ -156,7 +161,7 @@ def _completion_script(shell: str) -> str:
     if shell == "zsh":
         return """#compdef choom\n_arguments '1:command:(translate teach validate fmt lint profile run script schema guard completion relay demo)'\n"""
     if shell == "powershell":
-        return """Register-ArgumentCompleter -CommandName choom -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  'translate','teach','validate','fmt','lint','profile','run','script','schema','guard','completion','relay','demo' |\n    Where-Object { $_ -like \"$wordToComplete*\" } |\n    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n"""
+        return """Register-ArgumentCompleter -CommandName choom -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  'translate','teach','validate','fmt','lint','profile','run','script','validate-script','schema','guard','completion','relay','demo' |\n    Where-Object { $_ -like \"$wordToComplete*\" } |\n    ForEach-Object { [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_) }\n}\n"""
     raise ValueError("shell must be one of: bash, zsh, powershell")
 
 
@@ -346,6 +351,11 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "script":
             script_text = _read_script(args.path)
+            if args.validate_only:
+                parse_script_text(script_text)
+                print("ok")
+                return 0
+
             if args.to == "dsl":
                 outputs, errors = script_to_dsl(script_text, fail_fast=args.fail_fast)
             else:
@@ -360,6 +370,11 @@ def main(argv: list[str] | None = None) -> int:
                 return 2
             if errors and args.fail_fast:
                 return 2
+            return 0
+
+        if args.command == "validate-script":
+            parse_script_text(_read_script(args.path))
+            print("ok")
             return 0
 
         if args.command == "schema":

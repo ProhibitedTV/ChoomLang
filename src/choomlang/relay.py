@@ -11,7 +11,7 @@ from typing import Any, Callable, Literal
 from urllib import error, request
 
 from .dsl import DSLParseError
-from .protocol import build_contract_prompt, build_guard_prompt, canonical_json_schema
+from .protocol import build_contract_prompt, build_guard_prompt, canonical_json_schema, parse_script_text
 from .registry import CANONICAL_OPS, CANONICAL_TARGETS, normalize_op, validate_payload
 from .translate import json_to_dsl
 
@@ -448,6 +448,33 @@ def parse_structured_reply(
     normalized["target"] = str(normalized["target"])
     normalized["count"] = int(normalized["count"])
     normalized["params"] = dict(normalized["params"])
+
+    if normalized["op"] == "gen" and normalized["target"] == "script":
+        params = normalized["params"]
+        script_text = params.get("text")
+        if not isinstance(script_text, str):
+            raise RelayError(
+                "structured relay validation failed: field params.text is required string when op='gen' and target='script'; suggested fix: include generated script in params.text (not prompt)",
+                raw_response=raw,
+                reason="params",
+                stage="structured-validation",
+            )
+        if "prompt" in params:
+            raise RelayError(
+                "structured relay validation failed: field params.prompt is not allowed when op='gen' and target='script'; suggested fix: emit script in params.text",
+                raw_response=raw,
+                reason="params",
+                stage="structured-validation",
+            )
+        try:
+            parse_script_text(script_text)
+        except DSLParseError as exc:
+            raise RelayError(
+                f"structured relay validation failed: params.text must be a valid multi-line ChoomLang script ({exc}); suggested fix: emit parseable script lines in params.text",
+                raw_response=raw,
+                reason="params",
+                stage="structured-validation",
+            ) from exc
 
     dsl = json_to_dsl(normalized)
     return normalized, dsl

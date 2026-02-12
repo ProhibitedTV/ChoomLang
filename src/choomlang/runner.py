@@ -275,6 +275,25 @@ def _interpolate_string(value: str, state: RunnerState) -> str:
     return rendered
 
 
+def _handle_gen_script_payload(payload: dict[str, Any], artifacts_dir: Path, dry_run: bool) -> str:
+    params = payload.get("params")
+    if not isinstance(params, dict):
+        raise RunError("runner requires params object for gen script")
+
+    script_text = params.get("text")
+    if script_text is None:
+        script_text = params.get("script")
+    if not isinstance(script_text, str):
+        raise RunError("gen script requires params.text (or params.script) string output")
+
+    stored_id = params.get("id")
+    if isinstance(stored_id, str) and stored_id:
+        destination = artifacts_dir / f"{stored_id}.choom"
+        if not dry_run:
+            destination.write_text(script_text, encoding="utf-8")
+    return script_text
+
+
 def _execute_payload(
     payload: dict[str, Any],
     artifacts_dir: Path,
@@ -284,8 +303,11 @@ def _execute_payload(
     keep_alive: float | None = None,
     llm_client: LLMClient | None = None,
 ) -> str:
+    if payload.get("op") == "gen" and payload.get("target") == "script":
+        return _handle_gen_script_payload(payload, artifacts_dir, dry_run)
+
     if payload.get("op") != "toolcall" or payload.get("target") != "tool":
-        raise RunError("runner requires canonical op='toolcall' and target='tool'")
+        raise RunError("runner requires canonical op='toolcall' and target='tool', or 'gen script'")
 
     params = payload.get("params")
     if not isinstance(params, dict):

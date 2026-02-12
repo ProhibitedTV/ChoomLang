@@ -206,3 +206,25 @@ def test_suggest_model_names_returns_close_matches():
 def test_parse_structured_reply_error_message_is_diagnostic():
     with pytest.raises(RelayError, match="valid JSON"):
         parse_structured_reply("not-json")
+
+
+def test_parse_structured_reply_requires_params_text_for_gen_script():
+    with pytest.raises(RelayError, match="params.text is required string"):
+        parse_structured_reply('{"op":"gen","target":"script","params":{}}')
+
+
+def test_parse_structured_reply_rejects_prompt_for_gen_script():
+    with pytest.raises(RelayError, match="params.prompt is not allowed"):
+        parse_structured_reply('{"op":"gen","target":"script","params":{"text":"gen txt prompt=ok","prompt":"bad"}}')
+
+
+def test_parse_structured_reply_validates_script_text_for_gen_script():
+    with pytest.raises(RelayError, match="must be a valid multi-line ChoomLang script"):
+        parse_structured_reply('{"op":"gen","target":"script","params":{"text":"oops"}}')
+
+    payload, dsl = parse_structured_reply(
+        '{"op":"gen","target":"script","params":{"text":"gen txt prompt=hello\\nclassify txt label=ok"}}'
+    )
+    assert payload["params"]["text"].startswith("gen txt")
+    assert dsl.startswith('gen script text="gen txt prompt=hello')
+    assert 'classify txt label=ok"' in dsl
