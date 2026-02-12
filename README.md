@@ -1,4 +1,4 @@
-# ChoomLang v0.4
+# ChoomLang v0.5
 
 ChoomLang is a deterministic AI-to-AI command language with two layers:
 
@@ -13,7 +13,7 @@ This repo implements:
 - Validate mode (parse-only lint for DSL lines)
 - Ollama-backed relay mode (`choom relay`)
 - CLI (`choom`)
-- v0.4 structured relay + logging + lenient parsing ergonomics
+- v0.5 resilient structured relay + protocol contracts + timeout/keep-alive controls
 - Tests + CI
 
 ## Install
@@ -147,6 +147,24 @@ Relay transcript logging (JSONL):
 ```bash
 choom relay --a-model llama3.1 --b-model qwen2.5 --structured --log relay.jsonl
 ```
+
+
+Recommended on Windows PowerShell:
+
+```powershell
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --schema --timeout 240 --keep-alive 600
+```
+
+Relay reliability controls:
+- `--timeout SECONDS` (default `180`) applies to all Ollama HTTP requests.
+- `--keep-alive SECONDS` (default `300`) is sent as Ollama `keep_alive` for `/api/chat` and `/api/generate`.
+- `--no-fallback` disables structured auto-fallback.
+
+Structured fallback behavior:
+1. `--structured --schema` tries schema format first.
+2. On timeout/HTTP/non-JSON or invalid structured payload, relay warns and retries once with `format="json"`.
+3. If JSON retry fails: `--strict` exits with a stage-specific error (and last raw response), otherwise relay falls back to guarded DSL mode and logs that fallback.
+
 
 Lenient mode note: `validate`, `fmt`, and `relay` support `--lenient` to ignore only a final standalone `.`, `,`, or `;` token.
 

@@ -69,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_relay.add_argument("--raw-json", action="store_true", help="Print raw JSON replies in relay output")
     p_relay.add_argument("--log", help="Append relay transcript records to JSONL file")
     p_relay.add_argument("--lenient", action="store_true", help="Allow trivial trailing punctuation token in DSL mode")
+    p_relay.add_argument("--timeout", type=float, default=180.0, help="HTTP timeout in seconds for relay requests")
+    p_relay.add_argument("--keep-alive", dest="keep_alive", type=float, default=300.0, help="Ollama keep_alive value in seconds")
+    p_relay.add_argument("--no-fallback", action="store_true", help="Disable structured schema/json automatic fallback")
 
     return parser
 
@@ -151,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "relay":
             transcript = run_relay(
-                client=OllamaClient(),
+                client=OllamaClient(timeout=args.timeout, keep_alive=args.keep_alive),
                 a_model=args.a_model,
                 b_model=args.b_model,
                 turns=args.turns,
@@ -162,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
                 strict=args.strict,
                 structured=args.structured,
                 use_schema=args.schema if args.structured else False,
+                fallback_enabled=not args.no_fallback,
                 raw_json=args.raw_json,
                 log_path=args.log,
                 lenient=args.lenient,
