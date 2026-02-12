@@ -31,6 +31,8 @@ class RunnerConfig:
     resume: int | bool | None = None
     llm_client: LLMClient | None = None
     a1111_url: str | None = None
+    a1111_timeout: float | None = None
+    cancel_on_timeout: bool = False
 
 
 @dataclass
@@ -116,6 +118,8 @@ def run_script(
     config: RunnerConfig | None = None,
     llm_client: LLMClient | None = None,
     a1111_url: str | None = None,
+    a1111_timeout: float | None = None,
+    cancel_on_timeout: bool = False,
 ) -> list[str]:
     """Execute a .choom script line-by-line with persistent state + transcript."""
     cfg = config or RunnerConfig(
@@ -127,6 +131,8 @@ def run_script(
         resume=resume,
         llm_client=llm_client,
         a1111_url=a1111_url,
+        a1111_timeout=a1111_timeout,
+        cancel_on_timeout=cancel_on_timeout,
     )
     _ = cfg.timeout
     _ = cfg.keep_alive
@@ -197,6 +203,8 @@ def run_script(
                     llm_client=cfg.llm_client,
                     step_index=step_index,
                     a1111_url=cfg.a1111_url,
+                    a1111_timeout=cfg.a1111_timeout,
+                    cancel_on_timeout=cfg.cancel_on_timeout,
                 )
                 stored_id = _store_output_if_requested(state, payload, output)
                 state.set_last_successful_step(
@@ -364,6 +372,8 @@ def _execute_payload(
     llm_client: LLMClient | None = None,
     step_index: int | None = None,
     a1111_url: str | None = None,
+    a1111_timeout: float | None = None,
+    cancel_on_timeout: bool = False,
 ) -> str:
     if payload.get("op") == "gen" and payload.get("target") == "script":
         return _handle_gen_script_payload(payload, artifacts_dir, dry_run)
@@ -380,7 +390,12 @@ def _execute_payload(
         raise RunError("runner requires params.name for toolcall adapter selection")
 
     adapter_params = {key: value for key, value in params.items() if key != "name"}
-    context = {"step": step_index, "a1111_url": a1111_url}
+    context = {
+        "step": step_index,
+        "a1111_url": a1111_url,
+        "a1111_timeout": a1111_timeout,
+        "cancel_on_timeout": cancel_on_timeout,
+    }
     return run_adapter(
         tool_name,
         adapter_params,

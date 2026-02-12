@@ -258,14 +258,43 @@ def test_run_script_passes_step_and_a1111_url_context_to_adapters(tmp_path, monk
         {
             "name": "echo",
             "params": {"id": "first"},
-            "context": {"step": 1, "a1111_url": "http://a1111:9000"},
+            "context": {"step": 1, "a1111_url": "http://a1111:9000", "a1111_timeout": None, "cancel_on_timeout": False},
         },
         {
             "name": "echo",
             "params": {"id": "second"},
-            "context": {"step": 2, "a1111_url": "http://a1111:9000"},
+            "context": {"step": 2, "a1111_url": "http://a1111:9000", "a1111_timeout": None, "cancel_on_timeout": False},
         },
     ]
+
+def test_run_script_passes_a1111_timeout_and_cancel_context(tmp_path, monkeypatch):
+    script = tmp_path / "demo.choom"
+    script.write_text("toolcall tool name=echo\n", encoding="utf-8")
+
+    captured: dict[str, object] = {}
+
+    def fake_run_adapter(name, params, artifacts_dir, dry_run, **kwargs):
+        _ = name
+        _ = params
+        _ = artifacts_dir
+        _ = dry_run
+        captured.update(kwargs.get("context", {}))
+        return "ok"
+
+    monkeypatch.setattr("choomlang.runner.run_adapter", fake_run_adapter)
+
+    run_script(
+        str(script),
+        config=RunnerConfig(
+            workdir=str(tmp_path / "run"),
+            a1111_timeout=9.5,
+            cancel_on_timeout=True,
+        ),
+    )
+
+    assert captured["a1111_timeout"] == 9.5
+    assert captured["cancel_on_timeout"] is True
+
 
 def test_run_script_ollama_chat_adapter_with_fake_client(tmp_path):
     script = tmp_path / "demo.choom"
