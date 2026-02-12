@@ -151,11 +151,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _detect_shell() -> str:
+    shell = os.environ.get("SHELL", "")
+    shell_name = os.path.basename(shell).lower()
+    if shell_name == "zsh":
+        return "zsh"
+    if shell_name == "bash":
+        return "bash"
     if os.name == "nt":
         return "powershell"
-    shell = os.environ.get("SHELL", "")
-    if shell.endswith("zsh"):
-        return "zsh"
     return "bash"
 
 
