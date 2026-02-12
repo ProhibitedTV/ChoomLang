@@ -1,27 +1,41 @@
 # Examples
 
-## Wallpaper pack workflow (A1111 + runner artifacts)
+## Wallpaper pack workflows (A1111 + runner artifacts)
 
-This example demonstrates an end-to-end local workflow using the `a1111_txt2img` adapter and ChoomLang runner state/artifacts.
+These examples demonstrate an end-to-end local workflow using the `a1111_txt2img` adapter and ChoomLang runner state/artifacts.
 
 ### Prerequisites
 
 - Automatic1111 Stable Diffusion Web UI is running with API enabled (`--api`).
-- The API is reachable at `http://127.0.0.1:7860` (default adapter URL).
+- The API is reachable at `http://127.0.0.1:7860` (default adapter URL / A1111 API endpoint).
 
 ### Run
 
-From the repository root:
+From the repository root, use one of these profiles:
+
+Fast profile (recommended default):
 
 ```bash
-choom run examples/wallpaper_pack.choom
+choom run examples/wallpaper_pack.choom --timeout 900
+```
+
+HD profile (heavier 1080p batch):
+
+```bash
+choom run examples/wallpaper_pack_hd.choom --timeout 2400
 ```
 
 Recommended (explicit run folder):
 
 ```bash
-choom run examples/wallpaper_pack.choom --workdir runs/<runid>
+choom run examples/wallpaper_pack.choom --workdir runs/<runid> --timeout 900
 ```
+
+### Notes on timeouts and long-running generations
+
+- SDXL at `1920x1080` with higher step counts can take many minutes per image.
+- If the ChoomLang client times out, A1111 may continue generating in the background.
+- Optional cancel tip: send `POST /sdapi/v1/interrupt` to A1111 (see A1111 API docs).
 
 ### Expected outputs
 
@@ -32,4 +46,4 @@ The runner writes outputs under your run workdir, especially:
 - `manifest.txt` containing the returned image path list
 - `index.html` with a simple local gallery/manifest view
 
-The workflow captures image list output in `id=images` and reuses it via interpolation (`@images`) when writing `manifest.txt` and `index.html`.
+The workflows capture image list output in `id=images` and reuse it via interpolation (`@images`) when writing `manifest.txt` and `index.html`.
