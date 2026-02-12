@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import base64
+import socket
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 from urllib import request, error
@@ -205,7 +206,21 @@ def _as_int(params: dict[str, Any], key: str) -> int | None:
         raise RunError(f"a1111_txt2img param '{key}' must be an integer") from exc
 
 
+
+
+def _a1111_is_timeout_error(exc: Exception) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    if isinstance(exc, error.URLError):
+        reason = exc.reason
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            return True
+        return "timed out" in str(reason).lower()
+    return "timed out" in str(exc).lower()
+
 def _a1111_should_retry(exc: Exception) -> bool:
+    if _a1111_is_timeout_error(exc):
+        return False
     if isinstance(exc, error.HTTPError):
         return 500 <= exc.code < 600
     if isinstance(exc, error.URLError):
@@ -312,15 +327,15 @@ def _adapter_a1111_txt2img(
             with request.urlopen(req, timeout=request_timeout) as resp:
                 response_body = resp.read()
             break
-        except TimeoutError as exc:
-            if cancel_on_timeout:
-                interrupted = _a1111_interrupt(base_url, request_timeout)
-                print(
-                    f"a1111_txt2img timeout; interrupt {'succeeded' if interrupted else 'failed'}",
-                    flush=True,
-                )
-            raise RunError(f"a1111_txt2img request timed out after {request_timeout}s") from exc
         except Exception as exc:
+            if _a1111_is_timeout_error(exc):
+                if cancel_on_timeout:
+                    interrupted = _a1111_interrupt(base_url, request_timeout)
+                    print(
+                        f"a1111_txt2img timeout; interrupt {'succeeded' if interrupted else 'failed'}",
+                        flush=True,
+                    )
+                raise RunError(f"a1111_txt2img request timed out after {request_timeout}s") from exc
             last_exc = exc
             if attempt < attempts and _a1111_should_retry(exc):
                 print(f"a1111_txt2img transient error (attempt {attempt}/{attempts}): {exc}; retrying", flush=True)

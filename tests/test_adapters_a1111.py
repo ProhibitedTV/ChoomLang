@@ -1,6 +1,8 @@
 import base64
 import json
+import socket
 from pathlib import Path
+from urllib import error
 
 import pytest
 
@@ -189,7 +191,7 @@ def test_a1111_txt2img_timeout_triggers_interrupt_when_enabled(tmp_path, monkeyp
         _ = timeout
         calls.append(req.full_url)
         if req.full_url.endswith('/sdapi/v1/txt2img'):
-            raise TimeoutError('timed out')
+            raise error.URLError(socket.timeout('timed out'))
         return _FakeResponse({})
 
     monkeypatch.setattr('choomlang.adapters.request.urlopen', fake_urlopen)
