@@ -518,6 +518,7 @@ def build_transcript_record(
     fallback_reason: str | None,
     invalid_fields: list[str] | None = None,
     raw_json_text: str | None = None,
+    repeat_prevented: int = 0,
 ) -> dict[str, Any]:
     return {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -539,6 +540,7 @@ def build_transcript_record(
         "fallback_reason": fallback_reason,
         "invalid_fields": invalid_fields,
         "raw_json_text": raw_json_text,
+        "repeat_prevented": repeat_prevented,
     }
 
 
@@ -565,6 +567,7 @@ def summarize_transcript(records: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "total_turns": len(records),
         "retries": sum(int(record.get("retry", 0)) for record in records),
+        "repeats_prevented": sum(int(record.get("repeat_prevented", 0)) for record in records),
         "fallbacks_by_stage": dict(sorted(fallback_counts.items())),
         "elapsed_ms_by_stage": dict(sorted(stage_latency.items())),
     }
@@ -574,6 +577,7 @@ def print_relay_summary(summary: dict[str, Any], *, log_path: str | None) -> Non
     print(
         "relay summary: "
         f"turns={summary['total_turns']} retries={summary['retries']} "
+        f"repeats_prevented={summary['repeats_prevented']} "
         f"fallbacks={json.dumps(summary['fallbacks_by_stage'], sort_keys=True)}",
         file=sys.stderr,
     )
@@ -616,6 +620,7 @@ def run_relay(
     log_path: str | None = None,
     lenient: bool = False,
     warm: bool = False,
+    no_repeat: bool = True,
 ) -> list[tuple[str, str, dict[str, Any], str | None]]:
     if turns < 1:
         raise RelayError("turns must be >= 1")
@@ -652,6 +657,7 @@ def run_relay(
                     http_status,
                     retry_value,
                     fallback_reason,
+                    repeat_prevented,
                 ) = _structured_model_step(
                     client=client,
                     model=model,
@@ -665,6 +671,8 @@ def run_relay(
                     fallback_enabled=fallback_enabled,
                     lenient=lenient,
                     add_contract=use_contract_in_structured,
+                    previous_payload=current_json,
+                    no_repeat=no_repeat,
                 )
                 mode = "structured"
                 next_incoming = json.dumps(response_json, sort_keys=True)
@@ -682,6 +690,7 @@ def run_relay(
                 mode = "dsl"
                 request_mode = "dsl"
                 next_incoming = response
+                repeat_prevented = 0
 
             _append_exchange(histories[speaker], current, next_incoming)
             _append_exchange(histories[other], current, next_incoming)
@@ -706,6 +715,7 @@ def run_relay(
                 fallback_reason=fallback_reason,
                 invalid_fields=None,
                 raw_json_text=response_raw if structured else None,
+                repeat_prevented=repeat_prevented,
             )
             records.append(record)
             append_transcript(log_path, record)
@@ -731,7 +741,9 @@ def _structured_model_step(
     fallback_enabled: bool,
     lenient: bool,
     add_contract: bool,
-) -> tuple[str, str, dict[str, Any], int, RequestMode, int | None, int, str | None]:
+    previous_payload: dict[str, Any],
+    no_repeat: bool,
+) -> tuple[str, str, dict[str, Any], int, RequestMode, int | None, int, str | None, int]:
     contract = build_contract_prompt("structured") if add_contract else ""
     prompt = (
         "Reply with exactly one canonical ChoomLang JSON object and no extra text.\n"
@@ -741,6 +753,73 @@ def _structured_model_step(
         raise RelayError("incoming message too large to relay")
 
     working_history = [*history, {"role": "user", "content": prompt}]
+
+    def _is_repeat(payload: dict[str, Any]) -> bool:
+        return (
+            payload.get("op") == previous_payload.get("op")
+            and payload.get("target") == previous_payload.get("target")
+            and payload.get("count") == previous_payload.get("count")
+            and payload.get("params") == previous_payload.get("params")
+        )
+
+    def _apply_repeat_guard(
+        *,
+        raw_text: str,
+        payload: dict[str, Any],
+        dsl: str,
+        elapsed_ms: int,
+        http_status: int | None,
+        request_mode: RequestMode,
+        retry_value: int,
+        fallback_reason: str | None,
+        response_format: str | dict[str, Any],
+    ) -> tuple[str, str, dict[str, Any], int, RequestMode, int | None, int, str | None, int]:
+        if not no_repeat or not _is_repeat(payload):
+            return raw_text, dsl, payload, elapsed_ms, request_mode, http_status, retry_value, fallback_reason, 0
+
+        repair_history = [
+            *working_history,
+            {"role": "assistant", "content": raw_text},
+            {
+                "role": "user",
+                "content": (
+                    "Previous canonical payload: "
+                    f"{json.dumps(previous_payload, sort_keys=True)}\n"
+                    "Do not repeat the previous line; advance the workflow."
+                ),
+            },
+        ]
+        repaired_raw, repaired_elapsed, repaired_status = _chat_once(
+            client, model, repair_history, seed=seed, response_format=response_format
+        )
+        repaired_payload, repaired_dsl = parse_structured_reply(
+            repaired_raw,
+            strict_ops=not allow_unknown_op,
+            strict_targets=not allow_unknown_target,
+        )
+        if _is_repeat(repaired_payload):
+            raise RelayError(
+                "structured relay repeat guard failed after retry: model repeated previous canonical payload",
+                stage=request_mode,
+                raw_response=repaired_raw,
+            )
+        merged_retry = retry_value + 1
+        merged_reason = fallback_reason
+        if merged_reason:
+            merged_reason = f"{merged_reason};repeat-prevented"
+        else:
+            merged_reason = "repeat-prevented"
+        return (
+            repaired_raw,
+            repaired_dsl,
+            repaired_payload,
+            elapsed_ms + repaired_elapsed,
+            request_mode,
+            repaired_status,
+            merged_retry,
+            merged_reason,
+            1,
+        )
 
     if use_schema:
         schema_mode = "strict" if strict else "permissive"
@@ -753,7 +832,17 @@ def _structured_model_step(
                 strict_ops=not allow_unknown_op,
                 strict_targets=not allow_unknown_target,
             )
-            return raw_schema, dsl, payload, elapsed_schema, "structured-schema", status_schema, 0, None
+            return _apply_repeat_guard(
+                raw_text=raw_schema,
+                payload=payload,
+                dsl=dsl,
+                elapsed_ms=elapsed_schema,
+                http_status=status_schema,
+                request_mode="structured-schema",
+                retry_value=0,
+                fallback_reason=None,
+                response_format=canonical_json_schema(mode=schema_mode),
+            )
         except RelayError as schema_err:
             reason = f"schema-failed:{schema_err}"
             decision = decide_structured_recovery(
@@ -782,15 +871,16 @@ def _structured_model_step(
                     strict_ops=not allow_unknown_op,
                     strict_targets=not allow_unknown_target,
                 )
-                return (
-                    raw_json,
-                    dsl,
-                    payload,
-                    elapsed_json,
-                    "structured-json",
-                    status_json,
-                    1,
-                    reason,
+                return _apply_repeat_guard(
+                    raw_text=raw_json,
+                    payload=payload,
+                    dsl=dsl,
+                    elapsed_ms=elapsed_json,
+                    http_status=status_json,
+                    request_mode="structured-json",
+                    retry_value=1,
+                    fallback_reason=reason,
+                    response_format="json",
                 )
             except RelayError as json_err:
                 if strict:
@@ -823,6 +913,7 @@ def _structured_model_step(
                     http_status,
                     retry_count,
                     f"{reason};json-failed:{json_err}",
+                    0,
                 )
 
     raw, elapsed, status = _chat_once(client, model, working_history, seed=seed, response_format=canonical_json_schema(mode="permissive"))
@@ -831,7 +922,17 @@ def _structured_model_step(
         strict_ops=not allow_unknown_op,
         strict_targets=not allow_unknown_target,
     )
-    return raw, dsl, payload, elapsed, "structured-json", status, 0, None
+    return _apply_repeat_guard(
+        raw_text=raw,
+        payload=payload,
+        dsl=dsl,
+        elapsed_ms=elapsed,
+        http_status=status,
+        request_mode="structured-json",
+        retry_value=0,
+        fallback_reason=None,
+        response_format=canonical_json_schema(mode="permissive"),
+    )
 
 
 def _dsl_model_step(
