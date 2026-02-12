@@ -12,34 +12,38 @@ ChoomLang is a deterministic two-layer agent protocol that maps a compact DSL to
 
 ## 60-Second Quick Start
 
+Create and activate a virtual environment.
+
+Unix/macOS:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
 Install:
 
 ```bash
 pip install -e .
 ```
 
-Translate DSL to canonical JSON:
+Probe connectivity and model readiness:
 
 ```bash
-choom translate "jack img[2] style=studio res=1024x1024"
+choom relay --probe --a-model llama3.1 --b-model qwen2.5 --timeout 240 --keep-alive 300
 ```
 
-Translate JSON to DSL (`--reverse`):
+Run structured relay with warmup and logging:
 
 ```bash
-choom translate --reverse '{"op":"gen","target":"img","count":2,"params":{"res":"1024x1024","style":"studio"}}'
-```
-
-Validate DSL input (parse-only):
-
-```bash
-choom validate "gen img[2] style=studio"
-```
-
-Relay two local Ollama models speaking ChoomLang:
-
-```bash
-choom relay --a-model llama3.1 --b-model qwen2.5 --turns 4
+choom relay --a-model llama3.1 --b-model qwen2.5 --structured --warm --timeout 240 --keep-alive 300 --log relay.jsonl
 ```
 
 ## Stdin / piping examples
