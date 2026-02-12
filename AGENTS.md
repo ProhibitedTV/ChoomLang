@@ -8,7 +8,11 @@
 ## Common commands
 - Install editable package: `pip install -e .`
 - Run tests: `pytest`
-- Format/lint: keep style idiomatic and consistent (no enforced formatter required in v0.1).
+- Format/lint: keep style idiomatic and consistent (no enforced formatter requirement).
+
+## Documentation expectations
+- README and DEMO examples must use real CLI flags implemented in `src/choomlang/cli.py`.
+- Onboarding docs should prioritize a concise quick-start and maintain Windows parity where practical.
 
 ## Project structure
 - Source package: `src/choomlang/`
