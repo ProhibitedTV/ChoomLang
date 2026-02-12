@@ -1,0 +1,4 @@
+gen img[2] res=1024x1024 style=studio
+gen txt mood="night city" tone=noir
+healthcheck txt
+classify txt[3] confidence=0.9 label=animal
