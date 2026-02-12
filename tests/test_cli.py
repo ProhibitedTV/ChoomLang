@@ -175,3 +175,68 @@ def test_cli_fmt_lenient_allows_trailing_dot(capsys):
     out = capsys.readouterr().out.strip()
     assert code == 0
     assert out == "healthcheck txt"
+
+
+def test_cli_completion_default_shell(monkeypatch, capsys):
+    monkeypatch.setenv("SHELL", "/bin/zsh")
+    code = main(["completion"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "#compdef choom" in out
+
+
+def test_cli_completion_powershell(capsys):
+    code = main(["completion", "powershell"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Register-ArgumentCompleter" in out
+
+
+def test_cli_validate_suggests_missing_equals(capsys):
+    code = main(["validate", "gen txt mood"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "did you mean mood=<value>?" in err
+
+
+def test_cli_validate_suggests_lenient_for_trailing_dot(capsys):
+    code = main(["validate", "ping txt ."])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "try --lenient" in err
+
+
+def test_cli_validate_warns_unknown_op_target(capsys):
+    code = main(["validate", "invent unknown k=v"])
+    captured = capsys.readouterr()
+    assert code == 0
+    assert "unknown op 'invent'" in captured.err
+    assert "unknown target 'unknown'" in captured.err
+
+
+def test_cli_demo_shortcut(monkeypatch, capsys):
+    import choomlang.cli as cli
+
+    class DummyClient:
+        def __init__(self, timeout, keep_alive):
+            self.timeout = timeout
+            self.keep_alive = keep_alive
+
+    captured = {}
+
+    def fake_run_relay(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(cli, "OllamaClient", DummyClient)
+    monkeypatch.setattr(cli, "run_relay", fake_run_relay)
+
+    code = cli.main(["demo"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Relay Demo (v0.6)" in out
+    assert captured["a_model"] == "llama3.2:latest"
+    assert captured["b_model"] == "qwen2.5:latest"
+    assert captured["turns"] == 4
+    assert captured["structured"] is True
+    assert captured["log_path"] == "choom_demo.jsonl"

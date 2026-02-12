@@ -44,7 +44,8 @@ def canonicalize_op(op: str) -> str:
 
 
 def parse_dsl(line: str, *, lenient: bool = False) -> ParsedCommand:
-    tokens = _tokenize(line)
+    token_rows = _tokenize(line)
+    tokens = [token for token, _ in token_rows]
     if lenient:
         tokens = _strip_trailing_punctuation_token(tokens)
     if len(tokens) < 2:
@@ -54,14 +55,18 @@ def parse_dsl(line: str, *, lenient: bool = False) -> ParsedCommand:
     target, count = _parse_target_count(tokens[1])
 
     params: dict[str, Any] = {}
-    for token in tokens[2:]:
+    for token_index, token in enumerate(tokens[2:], start=2):
         if "=" not in token:
-            raise DSLParseError(f"malformed kv: missing '=' in token '{token}'")
+            raise DSLParseError(
+                f"malformed kv: missing '=' in token '{token}' at index {token_index}"
+            )
         key, raw_value = token.split("=", 1)
         if not key:
-            raise DSLParseError(f"malformed kv: empty key in token '{token}'")
+            raise DSLParseError(f"malformed kv: empty key in token '{token}' at index {token_index}")
         if raw_value == "":
-            raise DSLParseError(f"malformed kv: empty value for key '{key}'")
+            raise DSLParseError(
+                f"malformed kv: empty value for key '{key}' in token '{token}' at index {token_index}"
+            )
         params[key] = _coerce_value(raw_value)
 
     return ParsedCommand(op=canonicalize_op(op), target=target, count=count, params=params)
@@ -118,17 +123,18 @@ def _parse_target_count(token: str) -> tuple[str, int]:
     return target, count
 
 
-def _tokenize(line: str) -> list[str]:
+def _tokenize(line: str) -> list[tuple[str, int]]:
     line = line.strip()
     if not line:
         raise DSLParseError("invalid header: empty input")
 
-    tokens: list[str] = []
+    tokens: list[tuple[str, int]] = []
     current: list[str] = []
+    current_start = 0
     in_quote = False
     escape = False
 
-    for ch in line:
+    for i, ch in enumerate(line):
         if in_quote:
             current.append(ch)
             if escape:
@@ -141,19 +147,24 @@ def _tokenize(line: str) -> list[str]:
 
         if ch.isspace():
             if current:
-                tokens.append("".join(current))
+                tokens.append(("".join(current), current_start))
                 current = []
             continue
 
+        if not current:
+            current_start = i
         current.append(ch)
         if ch == '"':
             in_quote = True
 
     if in_quote:
-        raise DSLParseError("unterminated quote: missing closing '\"'")
+        token = "".join(current)
+        raise DSLParseError(
+            f"unterminated quote: missing closing '\"' in token '{token}' at char {current_start}"
+        )
 
     if current:
-        tokens.append("".join(current))
+        tokens.append(("".join(current), current_start))
 
     return tokens
 

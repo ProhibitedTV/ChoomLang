@@ -2,6 +2,8 @@
 
 Deterministic command protocol for agent-to-agent exchanges, with a compact DSL, canonical JSON, and an Ollama relay runtime.
 
+**v0.6 highlights:** clearer diagnostics, suggestion hints, shell completion helpers, and a one-command relay demo.
+
 ## What Problem ChoomLang Solves
 
 LLM output drift is common: the same prompt often produces different wrappers, key ordering, or extra text. That makes automation fragile.
@@ -100,6 +102,36 @@ When `--log relay.jsonl` is enabled, each turn appends one record.
 
 See [DEMO.md](DEMO.md) for a complete minimal run.
 
+
+## Shell Completion
+
+Generate completion scripts directly from the CLI:
+
+```bash
+choom completion bash
+choom completion zsh
+```
+
+```powershell
+choom completion powershell
+```
+
+If you omit the shell argument, Choom tries to auto-detect your environment and prints a suitable script.
+
+## Relay Demo Shortcut
+
+Run a predefined structured relay demo:
+
+```bash
+choom demo
+```
+
+This runs `llama3.2:latest` ↔ `qwen2.5:latest` for 4 turns, starts from:
+
+`gen txt prompt="ChoomLang in action: describe a client-server protocol in 5 lines"`
+
+and saves transcript records to `choom_demo.jsonl`.
+
 ## CLI Reference (Condensed)
 
 Use `choom --help` and `choom <command> --help` for full arguments.
@@ -111,6 +143,8 @@ Use `choom --help` and `choom <command> --help` for full arguments.
 - `schema`: print canonical JSON schema
 - `guard`: print model repair prompt
 - `relay`: Ollama relay (`--structured`, `--schema/--no-schema`, `--probe`, `--warm`, `--log`)
+- `demo`: predefined structured relay example run
+- `completion`: print shell completion script
 - `teach`: token-by-token DSL explanation
 
 ## Recommended Workflows

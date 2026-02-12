@@ -11,6 +11,7 @@ from choomlang.relay import (
     decide_structured_recovery,
     parse_structured_reply,
     strict_validate_with_retry,
+    suggest_model_names,
     summarize_transcript,
 )
 
@@ -180,3 +181,17 @@ def test_summarize_transcript_aggregates_retries_fallbacks_and_latency():
         "avg_ms": 250.0,
         "median_ms": 250.0,
     }
+
+
+def test_suggest_model_names_returns_close_matches():
+    matches = suggest_model_names(
+        "llama3.2:lates",
+        ["llama3.2:latest", "qwen2.5:latest", "mistral:latest"],
+    )
+    assert matches
+    assert matches[0] == "llama3.2:latest"
+
+
+def test_parse_structured_reply_error_message_is_diagnostic():
+    with pytest.raises(RelayError, match="valid JSON"):
+        parse_structured_reply("not-json")

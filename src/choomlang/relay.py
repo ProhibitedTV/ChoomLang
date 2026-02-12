@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import statistics
 import sys
+from difflib import get_close_matches
 from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
@@ -18,6 +19,36 @@ MAX_MESSAGE_CHARS = 4000
 PING_PAYLOAD = {"op": "ping", "target": "txt", "count": 1, "params": {}}
 RequestMode = Literal["dsl", "structured-schema", "structured-json", "fallback-dsl"]
 
+
+def _extract_model_names(tags_payload: dict[str, Any]) -> list[str]:
+    models = tags_payload.get("models", [])
+    names: list[str] = []
+    if isinstance(models, list):
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            name = model.get("name")
+            if isinstance(name, str):
+                names.append(name)
+    return names
+
+
+def suggest_model_names(name: str, available: list[str], *, limit: int = 3) -> list[str]:
+    if not available:
+        return []
+    return get_close_matches(name, available, n=limit, cutoff=0.4)
+
+
+def _format_structured_failure(stage: str, error: RelayError) -> RelayError:
+    last_raw = error.raw_response or "<none>"
+    hint = "try --no-schema; check model names from `ollama list`"
+    return RelayError(
+        f"structured relay failed in mode {stage}; reason={error}; "
+        f"last raw assistant content={last_raw}; suggested fix: {hint}",
+        http_status=error.http_status,
+        raw_response=error.raw_response,
+        stage=stage,
+    )
 
 class RelayError(RuntimeError):
     """Raised when relay execution fails."""
@@ -175,6 +206,22 @@ class OllamaClient:
                 keep_alive=self.keep_alive,
             )
         except RelayError as exc:
+            if exc.http_status == 404:
+                available: list[str] = []
+                try:
+                    tags, _, _ = self.get_tags(timeout=self.timeout)
+                    available = _extract_model_names(tags)
+                except RelayError:
+                    available = []
+                suggestions = suggest_model_names(model, available)
+                if suggestions:
+                    raise RelayError(
+                        f"model '{model}' not found. Closest matches from ollama list: {', '.join(suggestions)}",
+                        http_status=exc.http_status,
+                        raw_response=exc.raw_response,
+                        stage=exc.stage,
+                        reason="model-not-found",
+                    ) from exc
             if "HTTP 404" not in str(exc):
                 raise
 
@@ -666,19 +713,14 @@ def _structured_model_step(
                 )
             except RelayError as json_err:
                 if strict:
-                    raise RelayError(
-                        "structured relay failed at stage structured-json; "
-                        f"reason={json_err}; last raw response={json_err.raw_response or '<none>'}",
-                        http_status=json_err.http_status,
-                        raw_response=json_err.raw_response,
-                        stage="structured-json",
-                    ) from json_err
+                    raise _format_structured_failure("structured-json", json_err) from json_err
                 if not fallback_enabled:
+                    wrapped = _format_structured_failure("structured-json", json_err)
                     raise RelayError(
-                        "structured relay failed at stage structured-json; automatic fallback disabled",
-                        http_status=json_err.http_status,
-                        raw_response=json_err.raw_response,
-                        stage="structured-json",
+                        f"{wrapped}; automatic fallback disabled",
+                        http_status=wrapped.http_status,
+                        raw_response=wrapped.raw_response,
+                        stage=wrapped.stage,
                     ) from json_err
                 print("warning: structured json stage failed; falling back to DSL guard mode", file=sys.stderr)
                 raw_dsl, dsl_line, payload, elapsed_dsl, http_status, retry_count = _dsl_model_step(
