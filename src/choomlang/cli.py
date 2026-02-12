@@ -140,6 +140,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_relay.add_argument("--timeout", type=float, default=180.0, help="HTTP timeout in seconds for relay requests")
     p_relay.add_argument("--keep-alive", dest="keep_alive", type=float, default=300.0, help="Ollama keep_alive value in seconds")
     p_relay.add_argument("--no-fallback", action="store_true", help="Disable structured schema/json automatic fallback")
+    repeat_mode = p_relay.add_mutually_exclusive_group()
+    repeat_mode.add_argument(
+        "--no-repeat",
+        dest="no_repeat",
+        action="store_true",
+        default=True,
+        help="Reject exact repeats of the previous canonical payload (default)",
+    )
+    repeat_mode.add_argument(
+        "--allow-repeat",
+        dest="no_repeat",
+        action="store_false",
+        help="Allow exact repeats of the previous canonical payload",
+    )
     p_relay.add_argument("--probe", action="store_true", help="Probe Ollama connectivity/model readiness and exit")
     p_relay.add_argument("--warm", action="store_true", help="Pre-warm both relay models before turn exchange")
 
@@ -460,6 +474,7 @@ def main(argv: list[str] | None = None) -> int:
                 allow_unknown_op=args.allow_unknown_op,
                 allow_unknown_target=args.allow_unknown_target,
                 fallback_enabled=not args.no_fallback,
+                no_repeat=args.no_repeat,
                 raw_json=args.raw_json,
                 log_path=args.log,
                 lenient=args.lenient,

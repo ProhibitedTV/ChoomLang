@@ -10,6 +10,7 @@ from choomlang.relay import (
     build_transcript_record,
     decide_structured_recovery,
     parse_structured_reply,
+    run_relay,
     strict_validate_with_retry,
     suggest_model_names,
     summarize_transcript,
@@ -155,6 +156,7 @@ def test_build_transcript_record_shape_and_json_serializable():
         "fallback_reason",
         "invalid_fields",
         "raw_json_text",
+        "repeat_prevented",
     }
     assert record["request_mode"] == "structured-schema"
     assert record["stage"] == "structured-schema"
@@ -187,6 +189,7 @@ def test_summarize_transcript_aggregates_retries_fallbacks_and_latency():
     )
     assert summary["total_turns"] == 3
     assert summary["retries"] == 1
+    assert summary["repeats_prevented"] == 0
     assert summary["fallbacks_by_stage"] == {"structured-json": 1}
     assert summary["elapsed_ms_by_stage"]["structured-json"] == {
         "avg_ms": 250.0,
@@ -228,3 +231,75 @@ def test_parse_structured_reply_validates_script_text_for_gen_script():
     assert payload["params"]["text"].startswith("gen txt")
     assert dsl.startswith('gen script text="gen txt prompt=hello')
     assert 'classify txt label=ok"' in dsl
+
+
+def test_run_relay_structured_no_repeat_retries_and_succeeds(capsys):
+    class MockClient:
+        def __init__(self):
+            self.timeout = 180.0
+            self.keep_alive = 300.0
+            self.calls = []
+            self.outputs = [
+                '{"op":"gen","target":"txt"}',
+                '{"op":"plan","target":"txt","params":{"step":"next"}}',
+                '{"op":"summarize","target":"txt","params":{"topic":"progress"}}',
+            ]
+
+        def chat(self, model, messages, seed=None, response_format=None):
+            self.calls.append({"model": model, "messages": messages, "response_format": response_format})
+            return self.outputs[len(self.calls) - 1], 5, 200
+
+    client = MockClient()
+    transcript = run_relay(
+        client=client,
+        a_model="a",
+        b_model="b",
+        turns=1,
+        structured=True,
+        use_schema=False,
+        strict=True,
+        start="gen txt",
+    )
+
+    assert len(transcript) == 2
+    assert transcript[0][2]["op"] == "plan"
+    assert len(client.calls) == 3
+    assert "Do not repeat the previous line; advance the workflow." in client.calls[1]["messages"][-1]["content"]
+
+    err = capsys.readouterr().err
+    assert "repeats_prevented=1" in err
+
+
+def test_run_relay_structured_allow_repeat_allows_exact_repeat(capsys):
+    class MockClient:
+        def __init__(self):
+            self.timeout = 180.0
+            self.keep_alive = 300.0
+            self.calls = []
+            self.outputs = [
+                '{"op":"gen","target":"txt"}',
+                '{"op":"gen","target":"txt"}',
+            ]
+
+        def chat(self, model, messages, seed=None, response_format=None):
+            self.calls.append({"model": model, "messages": messages, "response_format": response_format})
+            return self.outputs[len(self.calls) - 1], 5, 200
+
+    client = MockClient()
+    transcript = run_relay(
+        client=client,
+        a_model="a",
+        b_model="b",
+        turns=1,
+        structured=True,
+        use_schema=False,
+        strict=True,
+        start="gen txt",
+        no_repeat=False,
+    )
+
+    assert len(transcript) == 2
+    assert transcript[0][2] == {"op": "gen", "target": "txt", "count": 1, "params": {}}
+    assert len(client.calls) == 2
+    err = capsys.readouterr().err
+    assert "repeats_prevented=0" in err
