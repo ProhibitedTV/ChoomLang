@@ -1,0 +1,9 @@
+{
+  "name": "osint_basic",
+  "defaults": {
+    "policy": "safe",
+    "trace": "osint-basic",
+    "backend": "local"
+  },
+  "notes": "Defaults for basic OSINT-style safe tasks"
+}

@@ -1,0 +1,9 @@
+{
+  "name": "sdxl_cyberpunk_bg",
+  "defaults": {
+    "style": "cyberpunk",
+    "res": "1920x1080",
+    "neon": "++"
+  },
+  "notes": "Defaults for SDXL background generation"
+}
