@@ -1,5 +1,8 @@
 # Examples
 
+> Looking for app-scoped wallpaper workflows? See `apps/wallpaper/README.md` and `apps/wallpaper/scripts/`.
+
+
 ## Wallpaper pack workflows (A1111 + runner artifacts)
 
 These examples demonstrate an end-to-end local workflow using the `a1111_txt2img` adapter and ChoomLang runner state/artifacts.
